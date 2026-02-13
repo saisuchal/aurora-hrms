@@ -1,0 +1,172 @@
+You are a senior full-stack engineer.
+
+Build a production-ready HRMS V0 system under the following constraints.
+
+====================================
+ENVIRONMENT & STACK
+====================================
+
+- Must run on Replit Core
+- Single Next.js (App Router) application
+- TypeScript
+- Tailwind CSS
+- Prisma ORM
+- PostgreSQL (Neon)
+- JWT stored in httpOnly cookies
+- bcrypt for password hashing
+- Zod for request validation
+- No separate backend server (use Next.js API routes)
+
+System must support up to 500 employees.
+Single organization only (no multi-tenancy).
+
+Do not overengineer.
+Keep it lightweight and optimized for low memory usage.
+
+====================================
+ROLES
+====================================
+
+- SUPER_ADMIN
+- HR
+- MANAGER
+- EMPLOYEE
+
+Managers and HR are also employees with elevated permissions.
+
+====================================
+AUTHENTICATION
+====================================
+
+- Invite-based registration only (no open signup)
+- HR creates employee record and sends invite email
+- Invite token expires in 24 hours
+- Login / Logout
+- Password reset
+- JWT in httpOnly cookie
+- Role-based middleware protection
+- Rate-limited login endpoint
+
+====================================
+CORE FEATURES
+====================================
+
+EMPLOYEE:
+- View profile
+- Clock-in (one per day)
+- Clock-out
+- View attendance history (paginated)
+- Apply attendance correction
+- Apply leave
+- View leave status
+- View/download payslips
+
+MANAGER:
+- All employee permissions
+- View team attendance
+- Approve/reject team leave
+
+HR:
+- Add employee manually
+- Send invite email
+- Edit employee details
+- Approve/reject leave
+- Approve/reject attendance correction
+- Dashboard snapshot:
+    - Total employees
+    - Present today
+    - On leave today
+    - Pending leave requests
+    - Pending attendance corrections
+- Generate monthly payroll
+- Generate payslip PDF
+- View audit logs
+
+SUPER_ADMIN:
+- Manage HR accounts
+- Full system access
+- Cannot be deleted
+
+====================================
+GEO-RESTRICTED ATTENDANCE
+====================================
+
+Clock-in must only succeed if employee is within configured office radius.
+
+- Office location stored in database:
+    - latitude
+    - longitude
+    - allowed_radius_meters
+- Frontend must use browser geolocation API.
+- Backend must calculate distance using Haversine formula.
+- Backend must reject clock-in if outside radius.
+- Do not trust frontend distance calculations.
+- Store clock-in and clock-out coordinates in attendance table.
+- If geolocation permission denied, clock-in must fail.
+- Log IP address for audit.
+
+Single office location only.
+
+====================================
+PAYROLL (V0 SIMPLIFIED)
+====================================
+
+- Each employee has fixed monthly salary.
+- Monthly payable = (Monthly Salary / Working Days) × Days Present.
+- No tax engine.
+- Generate payslip PDF.
+- Store payroll records and payslip metadata in DB.
+
+====================================
+DATABASE TABLES REQUIRED
+====================================
+
+- users
+- employees
+- attendance
+- attendance_corrections
+- leave_requests
+- payroll_records
+- payslips
+- audit_logs
+- invite_tokens
+- office_settings
+
+Use proper relations and indexes.
+All list endpoints must use pagination.
+
+====================================
+SECURITY REQUIREMENTS
+====================================
+
+- Passwords hashed with bcrypt
+- Input validation using Zod on all endpoints
+- Role-based middleware
+- JWT verification middleware
+- SSL-enabled DB connection
+- Audit logs for:
+    - Leave approvals
+    - Salary changes
+    - Attendance correction approvals
+    - Employee creation
+- Do not expose internal IDs unnecessarily
+- Do not store JWT in localStorage
+
+====================================
+DELIVERABLES
+====================================
+
+1. Folder structure
+2. Prisma schema
+3. Role-based middleware implementation
+4. Auth implementation (invite + login)
+5. Geo-restricted clock-in API route
+6. Payroll calculation logic
+7. Payslip generation approach
+8. Dashboard aggregation queries
+9. Deployment steps for Replit
+10. Required environment variables
+
+Keep implementation minimal, clean, and production-ready.
+Avoid unnecessary libraries.
+Optimize for Replit Core environment.
