@@ -25,6 +25,9 @@ import {
   Send,
   Users,
   Search,
+  Copy,
+  Check,
+  Key,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -33,6 +36,8 @@ export default function EmployeesPage() {
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [inviteToken, setInviteToken] = useState<{ token: string; employeeName: string; expiresAt: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const { data: employeeData, isLoading } = useQuery<any>({
     queryKey: [`/api/employees?page=${page}&search=${encodeURIComponent(search)}`],
@@ -74,17 +79,39 @@ export default function EmployeesPage() {
   });
 
   const inviteMutation = useMutation({
-    mutationFn: async (employeeId: number) => {
+    mutationFn: async ({ employeeId, employeeName }: { employeeId: number; employeeName: string }) => {
       const res = await apiRequest("POST", `/api/employees/${employeeId}/invite`);
-      return await res.json();
+      const data = await res.json();
+      return { ...data, employeeName };
     },
     onSuccess: (data: any) => {
-      toast({ title: "Invite sent", description: `Token: ${data.token}` });
+      setInviteToken({ token: data.token, employeeName: data.employeeName, expiresAt: data.expiresAt });
+      setCopied(false);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to send invite", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to generate invite", description: error.message, variant: "destructive" });
     },
   });
+
+  const copyToken = async () => {
+    if (!inviteToken) return;
+    try {
+      await navigator.clipboard.writeText(inviteToken.token);
+      setCopied(true);
+      toast({ title: "Copied to clipboard" });
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const input = document.createElement("textarea");
+      input.value = inviteToken.token;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      document.body.removeChild(input);
+      setCopied(true);
+      toast({ title: "Copied to clipboard" });
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -289,7 +316,7 @@ export default function EmployeesPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => inviteMutation.mutate(emp.id)}
+                            onClick={() => inviteMutation.mutate({ employeeId: emp.id, employeeName: `${emp.firstName} ${emp.lastName}` })}
                             disabled={inviteMutation.isPending}
                             data-testid={`button-invite-${emp.id}`}
                           >
@@ -322,6 +349,41 @@ export default function EmployeesPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!inviteToken} onOpenChange={(open) => { if (!open) setInviteToken(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5 text-primary" />
+              Invite Token Generated
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Share this token with <span className="font-medium text-foreground">{inviteToken?.employeeName}</span> so they can register their account.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                data-testid="input-invite-token"
+                readOnly
+                value={inviteToken?.token || ""}
+                className="font-mono text-xs"
+              />
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={copyToken}
+                data-testid="button-copy-token"
+              >
+                {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This token expires in 24 hours. The employee can use it on the login page by clicking "Have an invite token? Register here".
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

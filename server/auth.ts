@@ -81,7 +81,8 @@ export function setupAuth(app: Express) {
       req.login(user, async (err) => {
         if (err) return next(err);
         const employee = await storage.getEmployeeByUserId(user.id);
-        res.json({ ...user, employee });
+        const { password: _, ...safeUser } = user;
+        res.json({ ...safeUser, employee });
       });
     })(req, res, next);
   });
@@ -128,7 +129,8 @@ export function setupAuth(app: Express) {
       req.login(user, async (err) => {
         if (err) return next(err);
         const emp = await storage.getEmployeeByUserId(user.id);
-        res.status(201).json({ ...user, employee: emp });
+        const { password: _, ...safeUser } = user;
+        res.status(201).json({ ...safeUser, employee: emp });
       });
     } catch (err) {
       next(err);
@@ -145,6 +147,7 @@ export function setupAuth(app: Express) {
   app.get("/api/user", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const employee = await storage.getEmployeeByUserId(req.user!.id);
-    res.json({ ...req.user, employee });
+    const { password: _, ...safeUser } = req.user as any;
+    res.json({ ...safeUser, employee });
   });
 }
