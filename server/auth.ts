@@ -47,7 +47,11 @@ export function setupAuth(app: Express) {
     secret: process.env.SESSION_SECRET!,
     resave: false,
     saveUninitialized: false,
-    store: new PostgresSessionStore({ pool, createTableIfMissing: true }),
+    // store: new PostgresSessionStore({ pool, createTableIfMissing: true }),
+    store: new PostgresSessionStore({
+      pool,
+      tableName: "sessions"
+    }),
     cookie: {
       httpOnly: true,
       secure: false,
