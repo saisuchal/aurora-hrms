@@ -26,7 +26,10 @@ import {
   Users,
   Search,
   KeyRound,
+  UserX,
+  UserCheck,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function EmployeesPage() {
   const { toast } = useToast();
@@ -35,6 +38,7 @@ export default function EmployeesPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [resetConfirm, setResetConfirm] = useState<{ id: number; name: string } | null>(null);
+  const [deactivateConfirm, setDeactivateConfirm] = useState<{ id: number; name: string; isActive: boolean } | null>(null);
 
   const { data: employeeData, isLoading } = useQuery<any>({
     queryKey: [`/api/employees?page=${page}&search=${encodeURIComponent(search)}`],
@@ -86,6 +90,21 @@ export default function EmployeesPage() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to reset password", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: async (employeeId: number) => {
+      const res = await apiRequest("POST", `/api/employees/${employeeId}/toggle-active`);
+      return await res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: data.isActive ? "Employee activated" : "Employee deactivated", description: data.isActive ? "The employee can now access the system." : "The employee's access has been revoked." });
+      setDeactivateConfirm(null);
+      queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string).startsWith("/api/employees") });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Action failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -262,7 +281,7 @@ export default function EmployeesPage() {
                     <TableHead>Designation</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    {user?.role === "SUPER_ADMIN" && <TableHead>Actions</TableHead>}
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -286,24 +305,42 @@ export default function EmployeesPage() {
                       <TableCell>{emp.designation}</TableCell>
                       <TableCell><Badge variant="outline">{emp.role || "EMPLOYEE"}</Badge></TableCell>
                       <TableCell>
-                        <Badge variant={emp.userId ? "default" : "secondary"}>
-                          {emp.userId ? "Active" : "Pending"}
+                        <Badge variant={emp.isActive ? (emp.userId ? "default" : "secondary") : "destructive"}>
+                          {emp.isActive ? (emp.userId ? "Active" : "Pending") : "Deactivated"}
                         </Badge>
                       </TableCell>
-                      {user?.role === "SUPER_ADMIN" && (
-                        <TableCell>
-                          {emp.userId && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setResetConfirm({ id: emp.id, name: `${emp.firstName} ${emp.lastName}` })}
-                              data-testid={`button-reset-password-${emp.id}`}
-                            >
-                              <KeyRound className="h-4 w-4" />
-                            </Button>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          {user?.role === "SUPER_ADMIN" && emp.userId && emp.isActive && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setResetConfirm({ id: emp.id, name: `${emp.firstName} ${emp.lastName}` })}
+                                  data-testid={`button-reset-password-${emp.id}`}
+                                >
+                                  <KeyRound className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Reset Password</TooltipContent>
+                            </Tooltip>
                           )}
-                        </TableCell>
-                      )}
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeactivateConfirm({ id: emp.id, name: `${emp.firstName} ${emp.lastName}`, isActive: emp.isActive })}
+                                data-testid={`button-toggle-active-${emp.id}`}
+                              >
+                                {emp.isActive ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{emp.isActive ? "Deactivate" : "Activate"}</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -353,6 +390,41 @@ export default function EmployeesPage() {
             >
               {resetPasswordMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Reset Password
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deactivateConfirm} onOpenChange={(open) => { if (!open) setDeactivateConfirm(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {deactivateConfirm?.isActive ? (
+                <UserX className="h-5 w-5 text-destructive" />
+              ) : (
+                <UserCheck className="h-5 w-5 text-primary" />
+              )}
+              {deactivateConfirm?.isActive ? "Deactivate Employee" : "Activate Employee"}
+            </DialogTitle>
+            <DialogDescription>
+              {deactivateConfirm?.isActive
+                ? <>Are you sure you want to deactivate <span className="font-medium text-foreground">{deactivateConfirm?.name}</span>? They will lose access to the system.</>
+                : <>Are you sure you want to reactivate <span className="font-medium text-foreground">{deactivateConfirm?.name}</span>? Their access will be restored.</>
+              }
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setDeactivateConfirm(null)} data-testid="button-cancel-toggle">
+              Cancel
+            </Button>
+            <Button
+              variant={deactivateConfirm?.isActive ? "destructive" : "default"}
+              onClick={() => deactivateConfirm && toggleActiveMutation.mutate(deactivateConfirm.id)}
+              disabled={toggleActiveMutation.isPending}
+              data-testid="button-confirm-toggle"
+            >
+              {toggleActiveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {deactivateConfirm?.isActive ? "Deactivate" : "Activate"}
             </Button>
           </div>
         </DialogContent>

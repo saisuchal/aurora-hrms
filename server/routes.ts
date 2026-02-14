@@ -292,7 +292,7 @@ export async function registerRoutes(
       const page = parseInt(req.query.page as string) || 1;
       const search = req.query.search as string || "";
       const limit = 10;
-      const { records, total } = await storage.getEmployees(page, limit, search);
+      const { records, total } = await storage.getEmployees(page, limit, search, false);
       res.json({ records, total, totalPages: Math.ceil(total / limit) });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
@@ -357,6 +357,34 @@ export async function registerRoutes(
       });
 
       res.status(201).json(employee);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/employees/:id/toggle-active", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
+    try {
+      const employeeId = parseInt(req.params.id);
+      const employee = await storage.getEmployee(employeeId);
+      if (!employee) return res.status(404).json({ message: "Employee not found" });
+
+      const newStatus = !employee.isActive;
+      await storage.setEmployeeActive(employeeId, newStatus);
+
+      if (employee.userId) {
+        await storage.setUserActive(employee.userId, newStatus);
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: newStatus ? "ACTIVATE_EMPLOYEE" : "DEACTIVATE_EMPLOYEE",
+        entity: "employee",
+        entityId: employeeId,
+        details: `${newStatus ? "Activated" : "Deactivated"} employee ${employee.firstName} ${employee.lastName}`,
+        ipAddress: getClientIp(req),
+      });
+
+      res.json({ success: true, isActive: newStatus });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

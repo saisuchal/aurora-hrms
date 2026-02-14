@@ -55,6 +55,9 @@ export interface IStorage {
   updateUserPassword(userId: number, hashedPassword: string): Promise<void>;
   setMustResetPassword(userId: number, mustReset: boolean): Promise<void>;
 
+  setEmployeeActive(employeeId: number, isActive: boolean): Promise<void>;
+  setUserActive(userId: number, isActive: boolean): Promise<void>;
+
   getOfficeSettings(): Promise<OfficeSetting | undefined>;
   upsertOfficeSettings(data: any): Promise<OfficeSetting>;
 
@@ -92,9 +95,13 @@ export class DatabaseStorage implements IStorage {
     return emp || undefined;
   }
 
-  async getEmployees(page: number, limit: number, search?: string) {
+  async getEmployees(page: number, limit: number, search?: string, activeOnly: boolean = true) {
     const offset = (page - 1) * limit;
-    const conditions = [eq(employees.isActive, true)];
+    const conditions: any[] = [];
+
+    if (activeOnly) {
+      conditions.push(eq(employees.isActive, true));
+    }
 
     if (search) {
       conditions.push(
@@ -460,6 +467,14 @@ export class DatabaseStorage implements IStorage {
 
   async setMustResetPassword(userId: number, mustReset: boolean): Promise<void> {
     await db.update(users).set({ mustResetPassword: mustReset }).where(eq(users.id, userId));
+  }
+
+  async setEmployeeActive(employeeId: number, isActive: boolean): Promise<void> {
+    await db.update(employees).set({ isActive }).where(eq(employees.id, employeeId));
+  }
+
+  async setUserActive(userId: number, isActive: boolean): Promise<void> {
+    await db.update(users).set({ isActive }).where(eq(users.id, userId));
   }
 
   async getOfficeSettings(): Promise<OfficeSetting | undefined> {
