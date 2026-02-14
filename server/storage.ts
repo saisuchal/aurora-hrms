@@ -1,10 +1,10 @@
 import {
   users, employees, attendance, attendanceCorrections,
   leaveRequests, payrollRecords, payslips, auditLogs,
-  inviteTokens, officeSettings,
+  officeSettings,
   type User, type InsertUser, type Employee, type Attendance,
   type LeaveRequest, type AttendanceCorrection, type PayrollRecord,
-  type AuditLog, type InviteToken, type OfficeSetting,
+  type AuditLog, type OfficeSetting,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, sql, count, ilike, or, gte, lte } from "drizzle-orm";
@@ -52,9 +52,8 @@ export interface IStorage {
   createAuditLog(data: any): Promise<AuditLog>;
   getAuditLogs(page: number, limit: number): Promise<{ records: any[]; total: number }>;
 
-  getInviteByToken(token: string): Promise<InviteToken | undefined>;
-  createInvite(employeeId: number): Promise<InviteToken>;
-  markInviteUsed(id: number): Promise<void>;
+  updateUserPassword(userId: number, hashedPassword: string): Promise<void>;
+  setMustResetPassword(userId: number, mustReset: boolean): Promise<void>;
 
   getOfficeSettings(): Promise<OfficeSetting | undefined>;
   upsertOfficeSettings(data: any): Promise<OfficeSetting>;
@@ -455,26 +454,12 @@ export class DatabaseStorage implements IStorage {
     return { records, total };
   }
 
-  async getInviteByToken(token: string): Promise<InviteToken | undefined> {
-    const [record] = await db.select().from(inviteTokens)
-      .where(eq(inviteTokens.token, token));
-    return record || undefined;
+  async updateUserPassword(userId: number, hashedPassword: string): Promise<void> {
+    await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId));
   }
 
-  async createInvite(employeeId: number): Promise<InviteToken> {
-    const token = randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    const [record] = await db.insert(inviteTokens).values({
-      employeeId,
-      token,
-      expiresAt,
-      used: false,
-    }).returning();
-    return record;
-  }
-
-  async markInviteUsed(id: number): Promise<void> {
-    await db.update(inviteTokens).set({ used: true }).where(eq(inviteTokens.id, id));
+  async setMustResetPassword(userId: number, mustReset: boolean): Promise<void> {
+    await db.update(users).set({ mustResetPassword: mustReset }).where(eq(users.id, userId));
   }
 
   async getOfficeSettings(): Promise<OfficeSetting | undefined> {

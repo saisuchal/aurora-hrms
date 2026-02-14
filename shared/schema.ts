@@ -14,6 +14,7 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
   role: roleEnum("role").notNull().default("EMPLOYEE"),
   isActive: boolean("is_active").notNull().default(true),
+  mustResetPassword: boolean("must_reset_password").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
   index("users_username_idx").on(table.username),
@@ -189,10 +190,13 @@ export const loginSchema = z.object({
   password: z.string().min(6),
 });
 
-export const registerViaInviteSchema = z.object({
-  token: z.string(),
-  username: z.string().min(3),
-  password: z.string().min(6),
+export const resetPasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(6, "New password must be at least 6 characters"),
+});
+
+export const adminResetPasswordSchema = z.object({
+  employeeId: z.number(),
 });
 
 export const clockInSchema = z.object({

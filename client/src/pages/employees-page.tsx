@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -22,22 +23,18 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
-  Send,
   Users,
   Search,
-  Copy,
-  Check,
-  Key,
+  KeyRound,
 } from "lucide-react";
-import { format } from "date-fns";
 
 export default function EmployeesPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [inviteToken, setInviteToken] = useState<{ token: string; employeeName: string; expiresAt: string } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState<{ id: number; name: string } | null>(null);
 
   const { data: employeeData, isLoading } = useQuery<any>({
     queryKey: [`/api/employees?page=${page}&search=${encodeURIComponent(search)}`],
@@ -68,7 +65,7 @@ export default function EmployeesPage() {
       return await res.json();
     },
     onSuccess: () => {
-      toast({ title: "Employee added successfully" });
+      toast({ title: "Employee added successfully", description: "Login credentials have been sent to their email." });
       setAddOpen(false);
       form.reset();
       queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string).startsWith("/api/employees") });
@@ -78,40 +75,19 @@ export default function EmployeesPage() {
     },
   });
 
-  const inviteMutation = useMutation({
-    mutationFn: async ({ employeeId, employeeName }: { employeeId: number; employeeName: string }) => {
-      const res = await apiRequest("POST", `/api/employees/${employeeId}/invite`);
-      const data = await res.json();
-      return { ...data, employeeName };
+  const resetPasswordMutation = useMutation({
+    mutationFn: async (employeeId: number) => {
+      const res = await apiRequest("POST", "/api/admin/password/reset", { employeeId });
+      return await res.json();
     },
-    onSuccess: (data: any) => {
-      setInviteToken({ token: data.token, employeeName: data.employeeName, expiresAt: data.expiresAt });
-      setCopied(false);
+    onSuccess: () => {
+      toast({ title: "Password reset successfully", description: "A new temporary password has been sent to the employee's email." });
+      setResetConfirm(null);
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to generate invite", description: error.message, variant: "destructive" });
+      toast({ title: "Failed to reset password", description: error.message, variant: "destructive" });
     },
   });
-
-  const copyToken = async () => {
-    if (!inviteToken) return;
-    try {
-      await navigator.clipboard.writeText(inviteToken.token);
-      setCopied(true);
-      toast({ title: "Copied to clipboard" });
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const input = document.createElement("textarea");
-      input.value = inviteToken.token;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand("copy");
-      document.body.removeChild(input);
-      setCopied(true);
-      toast({ title: "Copied to clipboard" });
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
 
   return (
     <div className="p-6 space-y-6">
@@ -130,6 +106,9 @@ export default function EmployeesPage() {
           <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Add New Employee</DialogTitle>
+              <DialogDescription>
+                A user account will be created automatically. Login credentials will be sent to the employee's email.
+              </DialogDescription>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit((d) => addMutation.mutate(d))} className="space-y-4">
@@ -283,7 +262,7 @@ export default function EmployeesPage() {
                     <TableHead>Designation</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
+                    {user?.role === "SUPER_ADMIN" && <TableHead>Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -308,22 +287,23 @@ export default function EmployeesPage() {
                       <TableCell><Badge variant="outline">{emp.role || "EMPLOYEE"}</Badge></TableCell>
                       <TableCell>
                         <Badge variant={emp.userId ? "default" : "secondary"}>
-                          {emp.userId ? "Registered" : "Pending"}
+                          {emp.userId ? "Active" : "Pending"}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        {!emp.userId && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => inviteMutation.mutate({ employeeId: emp.id, employeeName: `${emp.firstName} ${emp.lastName}` })}
-                            disabled={inviteMutation.isPending}
-                            data-testid={`button-invite-${emp.id}`}
-                          >
-                            <Send className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </TableCell>
+                      {user?.role === "SUPER_ADMIN" && (
+                        <TableCell>
+                          {emp.userId && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setResetConfirm({ id: emp.id, name: `${emp.firstName} ${emp.lastName}` })}
+                              data-testid={`button-reset-password-${emp.id}`}
+                            >
+                              <KeyRound className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -350,37 +330,30 @@ export default function EmployeesPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!inviteToken} onOpenChange={(open) => { if (!open) setInviteToken(null); }}>
-        <DialogContent className="max-w-md">
+      <Dialog open={!!resetConfirm} onOpenChange={(open) => { if (!open) setResetConfirm(null); }}>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Key className="h-5 w-5 text-primary" />
-              Invite Token Generated
+              <KeyRound className="h-5 w-5 text-destructive" />
+              Reset Password
             </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to reset the password for <span className="font-medium text-foreground">{resetConfirm?.name}</span>? A new temporary password will be generated and sent to their email.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Share this token with <span className="font-medium text-foreground">{inviteToken?.employeeName}</span> so they can register their account.
-            </p>
-            <div className="flex items-center gap-2">
-              <Input
-                data-testid="input-invite-token"
-                readOnly
-                value={inviteToken?.token || ""}
-                className="font-mono text-xs"
-              />
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={copyToken}
-                data-testid="button-copy-token"
-              >
-                {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              This token expires in 24 hours. The employee can use it on the login page by clicking "Have an invite token? Register here".
-            </p>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setResetConfirm(null)} data-testid="button-cancel-reset">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => resetConfirm && resetPasswordMutation.mutate(resetConfirm.id)}
+              disabled={resetPasswordMutation.isPending}
+              data-testid="button-confirm-reset"
+            >
+              {resetPasswordMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Reset Password
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

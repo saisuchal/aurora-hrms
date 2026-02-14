@@ -14,11 +14,11 @@ type AuthContextType = {
   error: Error | null;
   loginMutation: UseMutationResult<User, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
-  registerMutation: UseMutationResult<User, Error, RegisterData>;
+  resetPasswordMutation: UseMutationResult<any, Error, ResetPasswordData>;
 };
 
 type LoginData = { username: string; password: string };
-type RegisterData = { token: string; username: string; password: string };
+type ResetPasswordData = { currentPassword: string; newPassword: string };
 
 export const AuthContext = createContext<AuthContextType | null>(null);
 
@@ -50,17 +50,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const registerMutation = useMutation({
-    mutationFn: async (data: RegisterData) => {
-      const res = await apiRequest("POST", "/api/register", data);
+  const resetPasswordMutation = useMutation({
+    mutationFn: async (data: ResetPasswordData) => {
+      const res = await apiRequest("POST", "/api/password/reset", data);
       return await res.json();
     },
-    onSuccess: (user: User) => {
-      queryClient.setQueryData(["/api/user"], user);
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      toast({ title: "Password updated successfully" });
     },
     onError: (error: Error) => {
       toast({
-        title: "Registration failed",
+        title: "Password reset failed",
         description: error.message,
         variant: "destructive",
       });
@@ -91,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         error,
         loginMutation,
         logoutMutation,
-        registerMutation,
+        resetPasswordMutation,
       }}
     >
       {children}

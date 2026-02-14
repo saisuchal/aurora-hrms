@@ -1,20 +1,23 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, hashPassword } from "./auth";
+import { setupAuth, hashPassword, comparePasswords, generateRandomPassword } from "./auth";
 import {
   clockInSchema, leaveApplicationSchema, correctionRequestSchema,
-  createEmployeeSchema,
+  createEmployeeSchema, resetPasswordSchema, adminResetPasswordSchema,
 } from "@shared/schema";
+import { sendCredentialsEmail, sendPasswordResetNotification } from "./email";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+  if (req.user!.mustResetPassword) return res.status(403).json({ message: "Password reset required", mustResetPassword: true });
   next();
 }
 
 function requireRole(...roles: string[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (req.user!.mustResetPassword) return res.status(403).json({ message: "Password reset required", mustResetPassword: true });
     if (!roles.includes(req.user!.role)) return res.status(403).json({ message: "Forbidden" });
     next();
   };
@@ -313,14 +316,43 @@ export async function registerRoutes(
       const existing = await storage.getEmployeeByEmail(parsed.data.email);
       if (existing) return res.status(400).json({ message: "Employee with this email already exists" });
 
-      const employee = await storage.createEmployee(parsed.data);
+      const tempPassword = generateRandomPassword(12);
+      const username = parsed.data.email.split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      let finalUsername = username;
+      let counter = 1;
+      while (await storage.getUserByUsername(finalUsername)) {
+        finalUsername = `${username}${counter}`;
+        counter++;
+      }
+
+      const hashedPassword = await hashPassword(tempPassword);
+      const user = await storage.createUser({
+        username: finalUsername,
+        password: hashedPassword,
+        role: parsed.data.role || "EMPLOYEE",
+        isActive: true,
+        mustResetPassword: true,
+      });
+
+      const employee = await storage.createEmployee({
+        ...parsed.data,
+        userId: user.id,
+      });
+
+      const appUrl = `${req.protocol}://${req.get("host")}`;
+      try {
+        await sendCredentialsEmail(parsed.data.email, parsed.data.firstName, finalUsername, tempPassword, appUrl);
+      } catch (emailErr: any) {
+        console.error("Failed to send credentials email:", emailErr.message);
+      }
 
       await storage.createAuditLog({
         userId: req.user!.id,
         action: "CREATE_EMPLOYEE",
         entity: "employee",
         entityId: employee.id,
-        details: `Created employee ${parsed.data.firstName} ${parsed.data.lastName}`,
+        details: `Created employee ${parsed.data.firstName} ${parsed.data.lastName} with username ${finalUsername}`,
         ipAddress: getClientIp(req),
       });
 
@@ -330,16 +362,70 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/employees/:id/invite", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
+  app.post("/api/password/reset", (req, res, next) => {
+    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    next();
+  }, async (req, res) => {
     try {
-      const employeeId = parseInt(req.params.id);
-      const employee = await storage.getEmployee(employeeId);
+      const parsed = resetPasswordSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
+
+      const user = await storage.getUser(req.user!.id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const valid = await comparePasswords(parsed.data.currentPassword, user.password);
+      if (!valid) return res.status(400).json({ message: "Current password is incorrect" });
+
+      const hashedNew = await hashPassword(parsed.data.newPassword);
+      await storage.updateUserPassword(user.id, hashedNew);
+      await storage.setMustResetPassword(user.id, false);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "PASSWORD_RESET",
+        entity: "user",
+        entityId: user.id,
+        details: "User reset their own password",
+        ipAddress: getClientIp(req),
+      });
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/admin/password/reset", requireRole("SUPER_ADMIN"), async (req, res) => {
+    try {
+      const parsed = adminResetPasswordSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
+
+      const employee = await storage.getEmployee(parsed.data.employeeId);
       if (!employee) return res.status(404).json({ message: "Employee not found" });
-      if (employee.userId) return res.status(400).json({ message: "Employee already registered" });
+      if (!employee.userId) return res.status(400).json({ message: "Employee has no user account" });
 
-      const invite = await storage.createInvite(employeeId);
+      const newPassword = generateRandomPassword(12);
+      const hashedPassword = await hashPassword(newPassword);
+      await storage.updateUserPassword(employee.userId, hashedPassword);
+      await storage.setMustResetPassword(employee.userId, true);
 
-      res.json({ token: invite.token, expiresAt: invite.expiresAt });
+      const appUrl = `${req.protocol}://${req.get("host")}`;
+      try {
+        await sendPasswordResetNotification(employee.email, employee.firstName, newPassword, appUrl);
+      } catch (emailErr: any) {
+        console.error("Failed to send password reset email:", emailErr.message);
+      }
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "ADMIN_PASSWORD_RESET",
+        entity: "user",
+        entityId: employee.userId,
+        details: `Super Admin reset password for ${employee.firstName} ${employee.lastName}`,
+        ipAddress: getClientIp(req),
+      });
+
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

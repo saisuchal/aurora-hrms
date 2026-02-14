@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Moon, Sun, Loader2 } from "lucide-react";
 
 import AuthPage from "@/pages/auth-page";
+import ResetPasswordPage from "@/pages/reset-password-page";
 import DashboardPage from "@/pages/dashboard-page";
 import AttendancePage from "@/pages/attendance-page";
 import LeavePage from "@/pages/leave-page";
@@ -98,8 +99,8 @@ function AppRouter() {
     return <AuthPage />;
   }
 
-  if (location === "/auth") {
-    return <AuthenticatedLayout />;
+  if (user.mustResetPassword) {
+    return <ResetPasswordPage />;
   }
 
   return <AuthenticatedLayout />;

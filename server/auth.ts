@@ -30,6 +30,16 @@ export async function comparePasswords(supplied: string, stored: string) {
   return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
+export function generateRandomPassword(length: number = 12): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%";
+  let password = "";
+  const bytes = randomBytes(length);
+  for (let i = 0; i < length; i++) {
+    password += chars[bytes[i] % chars.length];
+  }
+  return password;
+}
+
 export function setupAuth(app: Express) {
   const PostgresSessionStore = connectPg(session);
 
@@ -85,56 +95,6 @@ export function setupAuth(app: Express) {
         res.json({ ...safeUser, employee });
       });
     })(req, res, next);
-  });
-
-  app.post("/api/register", async (req, res, next) => {
-    try {
-      const { token, username, password } = req.body;
-      if (!token || !username || !password) {
-        return res.status(400).json({ message: "Missing required fields" });
-      }
-
-      const invite = await storage.getInviteByToken(token);
-      if (!invite) {
-        return res.status(400).json({ message: "Invalid invite token" });
-      }
-      if (invite.used) {
-        return res.status(400).json({ message: "Invite token already used" });
-      }
-      if (new Date(invite.expiresAt) < new Date()) {
-        return res.status(400).json({ message: "Invite token has expired" });
-      }
-
-      const existingUser = await storage.getUserByUsername(username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
-      }
-
-      const employee = await storage.getEmployee(invite.employeeId);
-      if (!employee) {
-        return res.status(400).json({ message: "Employee record not found" });
-      }
-
-      const hashedPassword = await hashPassword(password);
-      const user = await storage.createUser({
-        username,
-        password: hashedPassword,
-        role: "EMPLOYEE",
-        isActive: true,
-      });
-
-      await storage.linkEmployeeToUser(employee.id, user.id);
-      await storage.markInviteUsed(invite.id);
-
-      req.login(user, async (err) => {
-        if (err) return next(err);
-        const emp = await storage.getEmployeeByUserId(user.id);
-        const { password: _, ...safeUser } = user;
-        res.status(201).json({ ...safeUser, employee: emp });
-      });
-    } catch (err) {
-      next(err);
-    }
   });
 
   app.post("/api/logout", (req, res, next) => {

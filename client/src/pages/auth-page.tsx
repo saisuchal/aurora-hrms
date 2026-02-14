@@ -1,10 +1,8 @@
-import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,25 +14,13 @@ const loginSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
-const registerSchema = z.object({
-  token: z.string().min(1, "Invite token is required"),
-  username: z.string().min(3, "Username must be at least 3 characters"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-});
-
 export default function AuthPage() {
-  const [isRegister, setIsRegister] = useState(false);
-  const { user, loginMutation, registerMutation } = useAuth();
+  const { user, loginMutation } = useAuth();
   const [, navigate] = useLocation();
 
   const loginForm = useForm({
     resolver: zodResolver(loginSchema),
     defaultValues: { username: "", password: "" },
-  });
-
-  const registerForm = useForm({
-    resolver: zodResolver(registerSchema),
-    defaultValues: { token: "", username: "", password: "" },
   });
 
   if (user) {
@@ -44,10 +30,6 @@ export default function AuthPage() {
 
   const onLogin = loginForm.handleSubmit((data) => {
     loginMutation.mutate(data);
-  });
-
-  const onRegister = registerForm.handleSubmit((data) => {
-    registerMutation.mutate(data);
   });
 
   return (
@@ -60,138 +42,56 @@ export default function AuthPage() {
               <h1 className="text-2xl font-bold" data-testid="text-app-title">HRMS</h1>
             </div>
             <p className="text-muted-foreground">
-              {isRegister ? "Complete your registration with the invite token" : "Sign in to your account"}
+              Sign in to your account
             </p>
           </div>
 
-          {!isRegister ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Sign In</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Form {...loginForm}>
-                  <form onSubmit={onLogin} className="space-y-4">
-                    <FormField
-                      control={loginForm.control}
-                      name="username"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Username</FormLabel>
-                          <FormControl>
-                            <Input data-testid="input-username" placeholder="Enter your username" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={loginForm.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Password</FormLabel>
-                          <FormControl>
-                            <Input data-testid="input-password" type="password" placeholder="Enter your password" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      data-testid="button-login"
-                      type="submit"
-                      className="w-full"
-                      disabled={loginMutation.isPending}
-                    >
-                      {loginMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Sign In
-                    </Button>
-                  </form>
-                </Form>
-                <div className="mt-4 text-center">
-                  <button
-                    data-testid="link-switch-register"
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => setIsRegister(true)}
-                    type="button"
+          <Card>
+            <CardHeader>
+              <CardTitle>Sign In</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Form {...loginForm}>
+                <form onSubmit={onLogin} className="space-y-4">
+                  <FormField
+                    control={loginForm.control}
+                    name="username"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Username</FormLabel>
+                        <FormControl>
+                          <Input data-testid="input-username" placeholder="Enter your username" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={loginForm.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Password</FormLabel>
+                        <FormControl>
+                          <Input data-testid="input-password" type="password" placeholder="Enter your password" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button
+                    data-testid="button-login"
+                    type="submit"
+                    className="w-full"
+                    disabled={loginMutation.isPending}
                   >
-                    Have an invite token? Register here
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader>
-                <CardTitle>Register with Invite</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Form {...registerForm}>
-                  <form onSubmit={onRegister} className="space-y-4">
-                    <FormField
-                      control={registerForm.control}
-                      name="token"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Invite Token</FormLabel>
-                          <FormControl>
-                            <Input data-testid="input-token" placeholder="Paste your invite token" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={registerForm.control}
-                      name="username"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Username</FormLabel>
-                          <FormControl>
-                            <Input data-testid="input-reg-username" placeholder="Choose a username" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={registerForm.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Password</FormLabel>
-                          <FormControl>
-                            <Input data-testid="input-reg-password" type="password" placeholder="Choose a password" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button
-                      data-testid="button-register"
-                      type="submit"
-                      className="w-full"
-                      disabled={registerMutation.isPending}
-                    >
-                      {registerMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      Register
-                    </Button>
-                  </form>
-                </Form>
-                <div className="mt-4 text-center">
-                  <button
-                    data-testid="link-switch-login"
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => setIsRegister(false)}
-                    type="button"
-                  >
-                    Already have an account? Sign in
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                    {loginMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Sign In
+                  </Button>
+                </form>
+              </Form>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
