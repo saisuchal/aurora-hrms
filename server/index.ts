@@ -63,11 +63,19 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
+  // try {
+  //   await seedDatabase();
+  // } catch (err) {
+  //   console.error("Seed error:", err);
+  // }
+
+  if (process.env.NODE_ENV !== "production") {
   try {
     await seedDatabase();
   } catch (err) {
     console.error("Seed error:", err);
   }
+}
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
