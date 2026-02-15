@@ -1,36 +1,8 @@
-import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 
-/**
- * Gmail OAuth2 Transporter
- * Requires:
- * EMAIL_USER
- * GOOGLE_CLIENT_ID
- * GOOGLE_CLIENT_SECRET
- * GOOGLE_REFRESH_TOKEN
- */
+sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    type: "OAuth2",
-    user: process.env.EMAIL_USER, // your Gmail address
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 10000,
-});
-
-// Optional: verify transporter on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ Email transporter error:", error);
-  } else {
-    console.log("✅ Gmail OAuth transporter ready");
-  }
-});
+const FROM_EMAIL = "yourgmail@gmail.com"; // must match verified sender
 
 export async function sendCredentialsEmail(
   toEmail: string,
@@ -40,9 +12,12 @@ export async function sendCredentialsEmail(
   appUrl: string
 ): Promise<void> {
   try {
-    await transporter.sendMail({
-      from: `"Aurora HRMS" <${process.env.EMAIL_USER}>`,
+    await sgMail.send({
       to: toEmail,
+      from: {
+        email: FROM_EMAIL,
+        name: "Aurora HRMS",
+      },
       subject: "Your HRMS Account Credentials",
       html: `
         <h2>Welcome to HRMS</h2>
@@ -56,9 +31,11 @@ export async function sendCredentialsEmail(
         <small>This is an automated email. Please do not reply.</small>
       `,
     });
-  } catch (err) {
-    console.error("❌ Failed to send credentials email:", err);
-    throw err;
+
+    console.log("✅ Credentials email sent to:", toEmail);
+  } catch (error: any) {
+    console.error("❌ SendGrid Error:", error.response?.body || error);
+    throw error;
   }
 }
 
@@ -69,9 +46,12 @@ export async function sendPasswordResetNotification(
   appUrl: string
 ): Promise<void> {
   try {
-    const info = await transporter.sendMail({
-      from: `"Aurora HRMS" <${process.env.EMAIL_USER}>`,
+    await sgMail.send({
       to: toEmail,
+      from: {
+        email: FROM_EMAIL,
+        name: "Aurora HRMS",
+      },
       subject: "HRMS Password Reset",
       html: `
         <h2>Password Reset</h2>
@@ -84,9 +64,10 @@ export async function sendPasswordResetNotification(
         <small>This is an automated email. Please do not reply.</small>
       `,
     });
-    console.log("mail info:", info);
-  } catch (err) {
-    console.error("❌ Failed to send password reset email:", err);
-    throw err;
+
+    console.log("✅ Password reset email sent to:", toEmail);
+  } catch (error: any) {
+    console.error("❌ SendGrid Error:", error.response?.body || error);
+    throw error;
   }
 }

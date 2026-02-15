@@ -6,7 +6,7 @@ import {
   clockInSchema, leaveApplicationSchema, correctionRequestSchema,
   createEmployeeSchema, resetPasswordSchema, adminResetPasswordSchema,
 } from "@shared/schema";
-import { sendCredentialsEmail, sendPasswordResetNotification } from "./email";
+import { sendCredentialsEmail, sendPasswordResetNotification } from "./email copy";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
