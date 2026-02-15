@@ -70,7 +70,7 @@ export async function registerRoutes(
   app.post("/api/attendance/clock-in", requireAuth, async (req, res) => {
     try {
       const parsed = clockInSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid location data" });
+      if (!parsed.success) return res.status(400).json({message: "Invalid location data" });
 
       const employee = await storage.getEmployeeByUserId(req.user!.id);
       if (!employee) return res.status(400).json({ message: "Employee record not found" });
@@ -181,7 +181,7 @@ export async function registerRoutes(
   });
 
   // Review attendance correction (HR/Admin)
-  app.post("/api/attendance/correction/:id/review", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
+  app.post("/api/attendance/correction/:id/review", requireRole("HR", "SUPER_ADMIN"), async (req: Request<{ id: string }>, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const { status } = req.body;
@@ -239,7 +239,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leave/:id/review", requireRole("HR", "SUPER_ADMIN", "MANAGER"), async (req, res) => {
+  app.post("/api/leave/:id/review", requireRole("HR", "SUPER_ADMIN", "MANAGER"), async (req: Request<{ id: string }>, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const { status } = req.body;
@@ -362,7 +362,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/employees/:id/toggle-active", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
+  app.post("/api/employees/:id/toggle-active", requireRole("HR", "SUPER_ADMIN"), async (req: Request<{ id: string }>, res: Response) => {
     try {
       const employeeId = parseInt(req.params.id);
       const employee = await storage.getEmployee(employeeId);
@@ -570,7 +570,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/payslips/:id/download", requireAuth, async (req, res) => {
+  app.get("/api/payslips/:id/download", requireAuth, async (req: Request<{ id: string }>, res: Response) => {
     try {
       const payslip = await storage.getPayslip(parseInt(req.params.id));
       if (!payslip) return res.status(404).json({ message: "Payslip not found" });

@@ -75,6 +75,7 @@ function QuickAttendance() {
     onSuccess: () => {
       toast({ title: "Clocked in successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
     },
     onError: (error: Error) => {
@@ -91,6 +92,7 @@ function QuickAttendance() {
     onSuccess: () => {
       toast({ title: "Clocked out successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
     },
     onError: (error: Error) => {

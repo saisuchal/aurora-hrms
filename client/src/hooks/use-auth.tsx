@@ -68,21 +68,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  // const logoutMutation = useMutation({
+  //   mutationFn: async () => {
+  //     await apiRequest("POST", "/api/logout");
+  //   },
+  //   onSuccess: () => {
+  //     queryClient.setQueryData(["/api/user"], null);
+  //   },
+  //   onError: (error: Error) => {
+  //     toast({
+  //       title: "Logout failed",
+  //       description: error.message,
+  //       variant: "destructive",
+  //     });
+  //   },
+  // });
+
   const logoutMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/logout");
-    },
-    onSuccess: () => {
-      queryClient.setQueryData(["/api/user"], null);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Logout failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  mutationFn: async () => {
+    await apiRequest("POST", "/api/logout");
+  },
+  onSuccess: () => {
+    // Clear ALL cached queries
+    queryClient.clear();
+
+    // Optional: redirect
+    window.location.href = "/login";
+  },
+  onError: (error: Error) => {
+    toast({
+      title: "Logout failed",
+      description: error.message,
+      variant: "destructive",
+    });
+  },
+});
+
 
   return (
     <AuthContext.Provider
