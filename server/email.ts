@@ -69,7 +69,7 @@ export async function sendPasswordResetNotification(
   appUrl: string
 ): Promise<void> {
   try {
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from: `"Aurora HRMS" <${process.env.EMAIL_USER}>`,
       to: toEmail,
       subject: "HRMS Password Reset",
@@ -84,6 +84,7 @@ export async function sendPasswordResetNotification(
         <small>This is an automated email. Please do not reply.</small>
       `,
     });
+    console.log("mail info:", info);
   } catch (err) {
     console.error("❌ Failed to send password reset email:", err);
     throw err;
