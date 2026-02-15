@@ -1,10 +1,13 @@
-import { Resend } from "resend";
+// WORKS ONLY ON LOCALHOST POSES ISSUES ON RENDER DUE TO SMTP BLOCAKGE
+ import nodemailer from "nodemailer";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-const FROM_EMAIL = "Aurora HRMS <onboarding@resend.dev>"; 
-// You can use resend.dev for testing
-// Later you can verify your own domain
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
 export async function sendCredentialsEmail(
   toEmail: string,
@@ -13,8 +16,8 @@ export async function sendCredentialsEmail(
   tempPassword: string,
   appUrl: string
 ): Promise<void> {
-  await resend.emails.send({
-    from: FROM_EMAIL,
+  await transporter.sendMail({
+    from: `"Aurora HRMS" <${process.env.EMAIL_USER}>`,
     to: toEmail,
     subject: "Your HRMS Account Credentials",
     html: `
@@ -37,8 +40,8 @@ export async function sendPasswordResetNotification(
   newPassword: string,
   appUrl: string
 ): Promise<void> {
-  await resend.emails.send({
-    from: FROM_EMAIL,
+  await transporter.sendMail({
+    from: `"Aurora HRMS" <${process.env.EMAIL_USER}>`,
     to: toEmail,
     subject: "HRMS Password Reset",
     html: `
