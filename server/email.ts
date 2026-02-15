@@ -1,8 +1,13 @@
-import sgMail from "@sendgrid/mail";
+// WORKS ONLY ON LOCALHOST POSES ISSUES ON RENDER DUE TO SMTP BLOCAKGE
+ import nodemailer from "nodemailer";
 
-sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
-
-const FROM_EMAIL = "yourgmail@gmail.com"; // must match verified sender
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
 export async function sendCredentialsEmail(
   toEmail: string,
@@ -11,32 +16,22 @@ export async function sendCredentialsEmail(
   tempPassword: string,
   appUrl: string
 ): Promise<void> {
-  try {
-    await sgMail.send({
-      to: toEmail,
-      from: {
-        email: FROM_EMAIL,
-        name: "Aurora HRMS",
-      },
-      subject: "Your HRMS Account Credentials",
-      html: `
-        <h2>Welcome to HRMS</h2>
-        <p>Hello ${firstName},</p>
-        <p>Your account has been created. Below are your login details:</p>
-        <p><strong>Username:</strong> ${username}</p>
-        <p><strong>Temporary Password:</strong> ${tempPassword}</p>
-        <p>Please login at: <a href="${appUrl}">${appUrl}</a></p>
-        <p><strong>Important:</strong> You will be required to change your password after first login.</p>
-        <br/>
-        <small>This is an automated email. Please do not reply.</small>
-      `,
-    });
-
-    console.log("✅ Credentials email sent to:", toEmail);
-  } catch (error: any) {
-    console.error("❌ SendGrid Error:", error.response?.body || error);
-    throw error;
-  }
+  await transporter.sendMail({
+    from: `"Aurora HRMS" <${process.env.EMAIL_USER}>`,
+    to: toEmail,
+    subject: "Your HRMS Account Credentials",
+    html: `
+      <h2>Welcome to HRMS</h2>
+      <p>Hello ${firstName},</p>
+      <p>Your account has been created. Below are your login details:</p>
+      <p><strong>Username:</strong> ${username}</p>
+      <p><strong>Temporary Password:</strong> ${tempPassword}</p>
+      <p>Please login at: <a href="${appUrl}">${appUrl}</a></p>
+      <p><strong>Important:</strong> You will be required to change your password after first login.</p>
+      <br/>
+      <small>This is an automated email. Please do not reply.</small>
+    `,
+  });
 }
 
 export async function sendPasswordResetNotification(
@@ -45,29 +40,19 @@ export async function sendPasswordResetNotification(
   newPassword: string,
   appUrl: string
 ): Promise<void> {
-  try {
-    await sgMail.send({
-      to: toEmail,
-      from: {
-        email: FROM_EMAIL,
-        name: "Aurora HRMS",
-      },
-      subject: "HRMS Password Reset",
-      html: `
-        <h2>Password Reset</h2>
-        <p>Hello ${firstName},</p>
-        <p>Your password has been reset by an administrator.</p>
-        <p><strong>New Temporary Password:</strong> ${newPassword}</p>
-        <p>Please login at: <a href="${appUrl}">${appUrl}</a></p>
-        <p><strong>Important:</strong> You will be required to change this password immediately.</p>
-        <br/>
-        <small>This is an automated email. Please do not reply.</small>
-      `,
-    });
-
-    console.log("✅ Password reset email sent to:", toEmail);
-  } catch (error: any) {
-    console.error("❌ SendGrid Error:", error.response?.body || error);
-    throw error;
-  }
+  await transporter.sendMail({
+    from: `"Aurora HRMS" <${process.env.EMAIL_USER}>`,
+    to: toEmail,
+    subject: "HRMS Password Reset",
+    html: `
+      <h2>Password Reset</h2>
+      <p>Hello ${firstName},</p>
+      <p>Your password has been reset by an administrator.</p>
+      <p><strong>New Temporary Password:</strong> ${newPassword}</p>
+      <p>Please login at: <a href="${appUrl}">${appUrl}</a></p>
+      <p><strong>Important:</strong> You will be required to change this password immediately.</p>
+      <br/>
+      <small>This is an automated email. Please do not reply.</small>
+    `,
+  });
 }
