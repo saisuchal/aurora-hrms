@@ -33,8 +33,10 @@ export function AppSidebar() {
   const [location, navigate] = useLocation();
   const role = user?.role;
 
-  const employeeItems = [
+  const commonItems = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  ];
+  const employeeItems = [
     { title: "Attendance", url: "/attendance", icon: Clock },
     { title: "Leave", url: "/leave", icon: CalendarDays },
     { title: "Payslips", url: "/payslips", icon: FileText },
@@ -51,11 +53,11 @@ export function AppSidebar() {
     { title: "Leave Approvals", url: "/leave-approvals", icon: ClipboardList },
     { title: "Corrections", url: "/corrections", icon: FileText },
     { title: "Payroll", url: "/payroll", icon: DollarSign },
-    { title: "Audit Logs", url: "/audit-logs", icon: Shield },
   ];
 
   const adminItems = [
-    { title: "Settings", url: "/settings", icon: Settings },
+    { title: "System Settings", url: "/settings", icon: Settings },
+    { title: "Audit Logs", url: "/audit-logs", icon: Shield },
   ];
 
   const isActive = (url: string) => {
@@ -72,14 +74,34 @@ export function AppSidebar() {
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2">
           <Building2 className="h-6 w-6 text-primary" />
-          <span className="font-bold text-lg">HRMS</span>
+          <span className="font-bold text-lg">AURORA HRMS</span>
         </div>
       </SidebarHeader>
 
-      
+
 
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupLabel>Main</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {commonItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    data-testid={`nav-${item.title.toLowerCase()}`}
+                    onClick={() => navigate(item.url)}
+                    data-active={isActive(item.url)}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {(role !== "SUPER_ADMIN") && (<SidebarGroup>
           <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -98,6 +120,7 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        )}
 
         {(role === "MANAGER" || role === "SUPER_ADMIN") && (
           <SidebarGroup>

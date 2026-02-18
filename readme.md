@@ -1,4 +1,4 @@
-# HRMS - Human Resource Management System
+# AURORA HRMS - Human Resource Management System For Aurora Group of Colleges
 
 ## Overview
 A production-ready HRMS with geo-restricted attendance tracking, role-based access control, invite-based employee registration, leave management, payroll calculation, and audit logging.

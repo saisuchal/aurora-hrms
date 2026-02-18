@@ -426,7 +426,7 @@ if (overlapping) {
       casual: employee.casualLeaveBalance || 0,
       medical: employee.medicalLeaveBalance || 0,
       earned: employee.earnedLeaveBalance || 0,
-      unpaid: "Unlimited"
+      unpaid: "-"
     });
   } catch (err: any) {
     res.status(500).json({ message: err.message });

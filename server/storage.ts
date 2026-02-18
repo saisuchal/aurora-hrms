@@ -170,29 +170,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createEmployee(data: any): Promise<Employee> {
-  return await db.transaction(async (tx) => {
-    // 1️⃣ Insert with temporary code
-    const [inserted] = await tx
-      .insert(employees)
-      .values({
-        ...data,
-        employeeCode: "TEMP",
-      })
-      .returning();
+    return await db.transaction(async (tx) => {
+      // 1️⃣ Insert with temporary code
+      const [inserted] = await tx
+        .insert(employees)
+        .values({
+          ...data,
+          employeeCode: "TEMP",
+        })
+        .returning();
 
-    // 2️⃣ Generate deterministic code from real ID
-    const employeeCode = `EMP${String(inserted.id).padStart(4, "0")}`;
+      // 2️⃣ Generate deterministic code from real ID
+      const employeeCode = `EMP${String(inserted.id).padStart(4, "0")}`;
 
-    // 3️⃣ Update row with correct code
-    const [updated] = await tx
-      .update(employees)
-      .set({ employeeCode })
-      .where(eq(employees.id, inserted.id))
-      .returning();
+      // 3️⃣ Update row with correct code
+      const [updated] = await tx
+        .update(employees)
+        .set({ employeeCode })
+        .where(eq(employees.id, inserted.id))
+        .returning();
 
-    return updated;
-  });
-}
+      return updated;
+    });
+  }
 
 
   async updateEmployee(id: number, data: any): Promise<Employee | undefined> {
@@ -635,7 +635,7 @@ export class DatabaseStorage implements IStorage {
           .set({
             casualLeaveBalance: sql`${employees.casualLeaveBalance} + 1`,
             medicalLeaveBalance: sql`${employees.medicalLeaveBalance} + 1`,
-            lastLeaveAccrual: firstOfCurrentMonth,
+            lastLeaveAccrual: firstOfCurrentMonth.toISOString(),
           })
           .where(eq(employees.id, emp.id));
       }
@@ -645,42 +645,29 @@ export class DatabaseStorage implements IStorage {
   async markPastIncompleteAsUnpaid(): Promise<void> {
     const today = new Date();
 
-    const todayDateOnly = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate()
-    )
-      .toISOString()
-      .split("T")[0];  // ← string
+    const todayDateOnly =
+      today.getFullYear() +
+      "-" +
+      String(today.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(today.getDate()).padStart(2, "0");
 
-
-    // Get all attendance records before today
-    const pastRecords = await db
-      .select()
-      .from(attendance)
+    await db
+      .update(attendance)
+      .set({ status: "UNPAID" })
       .where(
         and(
-          lt(attendance.date, todayDateOnly)
+          lt(attendance.date, todayDateOnly),
+          or(
+            sql`${attendance.clockIn} IS NULL`,
+            sql`${attendance.clockOut} IS NULL`
+          ),
+          sql`${attendance.status} != 'UNPAID'`
         )
       );
-
-    for (const record of pastRecords) {
-      const isIncomplete =
-        !record.clockIn || !record.clockOut;
-
-      const alreadyUnpaid =
-        record.status === "UNPAID";
-
-      if (isIncomplete && !alreadyUnpaid) {
-        await db
-          .update(attendance)
-          .set({
-            status: "UNPAID",
-          })
-          .where(eq(attendance.id, record.id));
-      }
-    }
   }
+
+
 
 
 

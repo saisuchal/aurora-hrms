@@ -305,7 +305,7 @@ export default function LeavePage() {
                 <p className="text-sm text-muted-foreground">
                   Unpaid Leave
                 </p>
-                <p className="text-lg font-semibold">Unlimited</p>
+                <p className="text-lg font-semibold">-</p>
               </div>
             </div>
           )}

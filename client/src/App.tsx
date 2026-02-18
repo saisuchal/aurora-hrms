@@ -197,7 +197,7 @@ function AuthenticatedLayout() {
               {(role === "MANAGER" || role === "HR" || role === "SUPER_ADMIN") && (
                 <Route path="/team" component={TeamPage} />
               )}
-              {(role === "HR" || role === "SUPER_ADMIN") && (
+              {(role === "MANAGER" || role === "HR" || role === "SUPER_ADMIN") && (
                 <>
                   <Route path="/employees" component={EmployeesPage} />
                   <Route path="/leave-approvals" component={LeaveApprovalsPage} />

@@ -39,7 +39,7 @@ export default function AuthPage() {
           <div className="mb-8">
             <div className="flex items-center gap-2 mb-2">
               <Building2 className="h-8 w-8 text-primary" />
-              <h1 className="text-2xl font-bold" data-testid="text-app-title">HRMS</h1>
+              <h1 className="text-2xl font-bold" data-testid="text-app-title">AURORA HRMS</h1>
             </div>
             <p className="text-muted-foreground">
               Sign in to your account
