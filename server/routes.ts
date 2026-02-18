@@ -70,7 +70,7 @@ export async function registerRoutes(
   app.post("/api/attendance/clock-in", requireAuth, async (req, res) => {
     try {
       const parsed = clockInSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({message: "Invalid location data" });
+      if (!parsed.success) return res.status(400).json({ message: "Invalid location data" });
 
       const employee = await storage.getEmployeeByUserId(req.user!.id);
       if (!employee) return res.status(400).json({ message: "Employee record not found" });
@@ -181,42 +181,156 @@ export async function registerRoutes(
   });
 
   // Review attendance correction (HR/Admin)
-  app.post("/api/attendance/correction/:id/review", requireRole("HR", "SUPER_ADMIN"), async (req: Request<{ id: string }>, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { status } = req.body;
-      if (!["APPROVED", "REJECTED"].includes(status)) {
-        return res.status(400).json({ message: "Invalid status" });
+  // app.post("/api/attendance/correction/:id/review", requireRole("HR", "SUPER_ADMIN"), async (req: Request<{ id: string }>, res: Response) => {
+  //   try {
+  //     const id = parseInt(req.params.id);
+  //     const { status } = req.body;
+  //     if (!["APPROVED", "REJECTED"].includes(status)) {
+  //       return res.status(400).json({ message: "Invalid status" });
+  //     }
+
+  //     await storage.updateCorrectionStatus(id, status, req.user!.id);
+
+  //     await storage.createAuditLog({
+  //       userId: req.user!.id,
+  //       action: `CORRECTION_${status}`,
+  //       entity: "attendance_correction",
+  //       entityId: id,
+  //       ipAddress: getClientIp(req),
+  //     });
+
+  //     res.json({ success: true });
+  //   } catch (err: any) {
+  //     res.status(500).json({ message: err.message });
+  //   }
+  // });
+
+  app.post(
+    "/api/attendance/correction/:id/review",
+    requireRole("HR", "SUPER_ADMIN"),
+    async (req: Request<{ id: string }>, res: Response) => {
+      try {
+        const id = parseInt(req.params.id);
+        const { status } = req.body;
+
+        if (!["APPROVED", "REJECTED"].includes(status)) {
+          return res.status(400).json({ message: "Invalid status" });
+        }
+
+        const correction = await storage.getCorrectionById(id);
+        if (!correction) {
+          return res.status(404).json({ message: "Correction not found" });
+        }
+
+        if (status === "APPROVED") {
+          await storage.updateAttendanceByEmployeeAndDate(
+            correction.employeeId,
+            correction.date,
+            {
+              clockIn: correction.requestedClockIn,
+              clockOut: correction.requestedClockOut,
+            }
+          );
+        }
+
+        await storage.updateCorrectionStatus(id, status, req.user!.id);
+
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: `CORRECTION_${status}`,
+          entity: "attendance_correction",
+          entityId: id,
+          ipAddress: getClientIp(req),
+        });
+
+        res.json({ success: true });
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
       }
-
-      await storage.updateCorrectionStatus(id, status, req.user!.id);
-
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: `CORRECTION_${status}`,
-        entity: "attendance_correction",
-        entityId: id,
-        ipAddress: getClientIp(req),
-      });
-
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
     }
-  });
+  );
 
   // Leave management
+  // app.post("/api/leave", requireAuth, async (req, res) => {
+  //   try {
+  //     const parsed = leaveApplicationSchema.safeParse(req.body);
+  //     if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
+
+  //     const employee = await storage.getEmployeeByUserId(req.user!.id);
+  //     if (!employee) return res.status(400).json({ message: "Employee record not found" });
+
+  //     const record = await storage.createLeaveRequest({
+  //       employeeId: employee.id,
+  //       ...parsed.data,
+  //     });
+
+  //     res.json(record);
+  //   } catch (err: any) {
+  //     res.status(500).json({ message: err.message });
+  //   }
+  // });
+
   app.post("/api/leave", requireAuth, async (req, res) => {
     try {
       const parsed = leaveApplicationSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
 
       const employee = await storage.getEmployeeByUserId(req.user!.id);
-      if (!employee) return res.status(400).json({ message: "Employee record not found" });
+      if (!employee) {
+        return res.status(400).json({ message: "Employee record not found" });
+      }
+
+      const { leaveType, startDate, endDate } = parsed.data;
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      const diffDays =
+        Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+      if (diffDays <= 0) {
+        return res.status(400).json({ message: "Invalid leave dates" });
+      }
+
+      // ✅ Balance checks only for CASUAL and MEDICAL
+      if (leaveType === "CASUAL") {
+        if ((employee.casualLeaveBalance || 0) < diffDays) {
+          return res.status(400).json({
+            message: "Insufficient casual leave balance",
+          });
+        }
+      }
+
+      if (leaveType === "MEDICAL") {
+        if ((employee.medicalLeaveBalance || 0) < diffDays) {
+          return res.status(400).json({
+            message: "Insufficient medical leave balance",
+          });
+        }
+      }
+
+      const overlapping = await storage.hasOverlappingLeave(
+  employee.id,
+  startDate,
+  endDate
+);
+
+if (overlapping) {
+  return res.status(400).json({
+    message: "Leave overlaps with an existing request",
+  });
+}
 
       const record = await storage.createLeaveRequest({
         employeeId: employee.id,
-        ...parsed.data,
+        leaveType,
+        startDate,
+        endDate,
+        reason: parsed.data.reason,
+        days: diffDays,
+        status: "PENDING",
       });
 
       res.json(record);
@@ -224,6 +338,8 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
+
+
 
   app.get("/api/leave", requireAuth, async (req, res) => {
     try {
@@ -239,15 +355,49 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leave/:id/review", requireRole("HR", "SUPER_ADMIN", "MANAGER"), async (req: Request<{ id: string }>, res: Response) => {
+  // app.post("/api/leave/:id/review", requireRole("HR", "SUPER_ADMIN", "MANAGER"), async (req: Request<{ id: string }>, res: Response) => {
+  //   try {
+  //     const id = parseInt(req.params.id);
+  //     const { status } = req.body;
+  //     if (!["APPROVED", "REJECTED"].includes(status)) {
+  //       return res.status(400).json({ message: "Invalid status" });
+  //     }
+
+  //     await storage.updateLeaveStatus(id, status, req.user!.id);
+
+  //     await storage.createAuditLog({
+  //       userId: req.user!.id,
+  //       action: `LEAVE_${status}`,
+  //       entity: "leave_request",
+  //       entityId: id,
+  //       ipAddress: getClientIp(req),
+  //     });
+
+  //     res.json({ success: true });
+  //   } catch (err: any) {
+  //     res.status(500).json({ message: err.message });
+  //   }
+  // });
+
+  // Team endpoints
+
+  app.post(
+  "/api/leave/:id/review",
+  requireRole("HR", "SUPER_ADMIN", "MANAGER"),
+  async (req: Request<{ id: string }>, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const { status } = req.body;
+
       if (!["APPROVED", "REJECTED"].includes(status)) {
         return res.status(400).json({ message: "Invalid status" });
       }
 
-      await storage.updateLeaveStatus(id, status, req.user!.id);
+      await storage.reviewLeaveWithTransaction(
+        id,
+        status,
+        req.user!.id
+      );
 
       await storage.createAuditLog({
         userId: req.user!.id,
@@ -259,11 +409,34 @@ export async function registerRoutes(
 
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      res.status(400).json({ message: err.message });
     }
-  });
+  }
+);
 
-  // Team endpoints
+
+  app.get("/api/leave/balance", requireAuth, async (req, res) => {
+  try {
+    const employee = await storage.getEmployeeByUserId(req.user!.id);
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found" });
+    }
+
+    res.json({
+      casual: employee.casualLeaveBalance || 0,
+      medical: employee.medicalLeaveBalance || 0,
+      earned: employee.earnedLeaveBalance || 0,
+      unpaid: "Unlimited"
+    });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+
+
+
+
   app.get("/api/team/attendance", requireRole("MANAGER", "HR", "SUPER_ADMIN"), async (req, res) => {
     try {
       const employee = await storage.getEmployeeByUserId(req.user!.id);
@@ -472,7 +645,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/corrections", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
+  app.get("/api/admin/corrections", requireRole("HR","MANAGER", "SUPER_ADMIN"), async (req, res) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = 10;

@@ -83,9 +83,9 @@ export default function AttendancePage() {
   const { user } = useAuth();
 
   const { data: historyData, isLoading: historyLoading } = useQuery<any>({
-  queryKey: ["/api/attendance/history", user?.id, page],
-  enabled: !!user, // prevents query before auth loads
-});
+    queryKey: ["/api/attendance/history", user?.id, page],
+    enabled: !!user, // prevents query before auth loads
+  });
 
 
   const correctionForm = useForm({
@@ -123,6 +123,45 @@ export default function AttendancePage() {
     setCorrectionOpen(true);
   };
 
+  // const correctionMutation = useMutation({
+  //   mutationFn: async (data: z.infer<typeof correctionSchema>) => {
+  //     const payload = {
+  //       date: selectedRecord
+  //         ? format(new Date(selectedRecord.date), "yyyy-MM-dd")
+  //         : format(new Date(data.date), "yyyy-MM-dd"),
+  //       reason: data.reason,
+  //       requestedClockIn: data.requestedClockIn
+  //         ? new Date(data.requestedClockIn).toISOString()
+  //         : null,
+  //       requestedClockOut: data.requestedClockOut
+  //         ? new Date(data.requestedClockOut).toISOString()
+  //         : null,
+  //     };
+
+  //     const res = await apiRequest(
+  //       "POST",
+  //       "/api/attendance/correction",
+  //       payload
+  //     );
+
+  //     return await res.json();
+  //   },
+  //   onSuccess: () => {
+  //     toast({ title: "Correction request submitted" });
+  //     setCorrectionOpen(false);
+  //     correctionForm.reset();
+  //     setSelectedRecord(null);
+  //     setDateBounds(null);
+  //   },
+  //   onError: (error: Error) => {
+  //     toast({
+  //       title: "Failed to submit correction",
+  //       description: error.message,
+  //       variant: "destructive",
+  //     });
+  //   },
+  // });
+
   const correctionMutation = useMutation({
     mutationFn: async (data: z.infer<typeof correctionSchema>) => {
       const payload = {
@@ -146,17 +185,30 @@ export default function AttendancePage() {
 
       return await res.json();
     },
+
     onSuccess: () => {
       toast({ title: "Correction request submitted" });
+
       setCorrectionOpen(false);
       correctionForm.reset();
       setSelectedRecord(null);
       setDateBounds(null);
+
+      // 🔥 THIS IS WHAT YOU NEED
+      queryClient.invalidateQueries({
+        queryKey: ["/api/attendance/history", user?.id],
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["/api/attendance/today", user?.id],
+      });
     },
+
     onError: (error: Error) => {
       toast({
         title: "Failed to submit correction",
-        description: error.message,
+        // description: error.message,
+        description: "You have already submitted your correction request. Please wait for it to be reviewed.",
         variant: "destructive",
       });
     },
@@ -202,7 +254,7 @@ export default function AttendancePage() {
                           : "-"}
                       </TableCell>
 
-                      <TableCell>
+                      {/* <TableCell>
                         <Badge
                           variant={
                             record.status === "PRESENT"
@@ -212,7 +264,32 @@ export default function AttendancePage() {
                         >
                           {record.status}
                         </Badge>
+                      </TableCell> */}
+
+                      <TableCell>
+                        <Badge
+                          variant={
+                            record.correctionStatus === "APPROVED"
+                              ? "default"
+                              : record.correctionStatus === "REJECTED"
+                                ? "destructive"
+                                : record.correctionStatus === "PENDING"
+                                  ? "secondary"
+                                  : record.status === "PRESENT"
+                                    ? "default"
+                                    : "secondary"
+                          }
+                        >
+                          {record.correctionStatus === "PENDING"
+                            ? "Correction Requested"
+                            : record.correctionStatus === "APPROVED"
+                              ? "Correction Approved"
+                              : record.correctionStatus === "REJECTED"
+                                ? "Correction Rejected"
+                                : record.status}
+                        </Badge>
                       </TableCell>
+
 
                       <TableCell>
                         <Button

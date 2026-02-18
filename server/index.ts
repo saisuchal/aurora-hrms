@@ -4,6 +4,10 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase } from "./seed";
 
+import cron from "node-cron";
+import { storage } from "./storage";
+
+
 
 const app = express();
 const httpServer = createServer(app);
@@ -61,6 +65,8 @@ app.use((req, res, next) => {
   next();
 });
 
+
+
 (async () => {
   await registerRoutes(httpServer, app);
 
@@ -71,12 +77,12 @@ app.use((req, res, next) => {
   // }
 
   if (process.env.NODE_ENV !== "production") {
-  try {
-    await seedDatabase();
-  } catch (err) {
-    console.error("Seed error:", err);
+    try {
+      await seedDatabase();
+    } catch (err) {
+      console.error("Seed error:", err);
+    }
   }
-}
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -100,6 +106,25 @@ app.use((req, res, next) => {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
+
+  async function runReconciliation() {
+    console.log("Running reconciliation...");
+
+    await storage.processMonthlyLeaveAccrual();
+    await storage.markPastIncompleteAsUnpaid();
+
+    console.log("Reconciliation complete.");
+  }
+
+  // Run once on startup
+  await runReconciliation();
+
+  // Run every 6 hours
+  cron.schedule("0 */6 * * *", async () => {
+    await runReconciliation();
+  });
+
+
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

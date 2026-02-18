@@ -198,7 +198,7 @@ export default function EmployeesPage() {
                 {managers?.length > 0 && (
                   <FormField control={form.control} name="managerId" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Manager (optional)</FormLabel>
+                      <FormLabel>Manager</FormLabel>
                       <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()}>
                         <FormControl>
                           <SelectTrigger data-testid="select-manager">

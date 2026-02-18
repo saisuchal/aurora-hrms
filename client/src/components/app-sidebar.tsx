@@ -42,6 +42,8 @@ export function AppSidebar() {
 
   const managerItems = [
     { title: "Team", url: "/team", icon: Users },
+    { title: "Corrections", url: "/corrections", icon: FileText },
+    { title: "Leave Approvals", url: "/leave-approvals", icon: ClipboardList },
   ];
 
   const hrItems = [
@@ -97,7 +99,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {(role === "MANAGER" || role === "HR" || role === "SUPER_ADMIN") && (
+        {(role === "MANAGER" || role === "SUPER_ADMIN") && (
           <SidebarGroup>
             <SidebarGroupLabel>Management</SidebarGroupLabel>
             <SidebarGroupContent>

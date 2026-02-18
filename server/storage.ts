@@ -7,7 +7,7 @@ import {
   type AuditLog, type OfficeSetting,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, count, ilike, or, gte, lte } from "drizzle-orm";
+import { eq, and, desc, sql, count, ilike, or, gte, lte, lt } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
 export interface IStorage {
@@ -28,13 +28,23 @@ export interface IStorage {
   getTodayAttendance(employeeId: number): Promise<Attendance | undefined>;
   createAttendance(data: any): Promise<Attendance>;
   updateAttendance(id: number, data: any): Promise<Attendance | undefined>;
-  getAttendanceHistory(employeeId: number, page: number, limit: number): Promise<{ records: Attendance[]; total: number }>;
+  getAttendanceHistory(
+    employeeId: number,
+    page: number,
+    limit: number
+  ): Promise<{
+    records: (Attendance & { correctionStatus: string | null })[];
+    total: number;
+  }>;
   getTeamAttendanceToday(managerEmployeeId: number): Promise<any[]>;
   getDaysPresent(employeeId: number, month: number, year: number): Promise<number>;
 
   createAttendanceCorrection(data: any): Promise<AttendanceCorrection>;
   getCorrections(page: number, limit: number): Promise<{ records: any[]; total: number }>;
   updateCorrectionStatus(id: number, status: string, reviewedBy: number): Promise<void>;
+  getCorrectionById(id: number): Promise<AttendanceCorrection | undefined>;
+  updateAttendanceByEmployeeAndDate(employeeId: number, date: string, data: { clockIn?: Date | null; clockOut?: Date | null }): Promise<void>;
+
 
   createLeaveRequest(data: any): Promise<LeaveRequest>;
   getLeaveRequests(employeeId: number, page: number, limit: number): Promise<{ records: LeaveRequest[]; total: number }>;
@@ -42,6 +52,12 @@ export interface IStorage {
   getTeamLeaves(managerEmployeeId: number): Promise<any[]>;
   updateLeaveStatus(id: number, status: string, reviewedBy: number): Promise<void>;
   getLeaveRequest(id: number): Promise<LeaveRequest | undefined>;
+  processMonthlyLeaveAccrual(): Promise<void>;
+  getEmployeeLeaveBalance(employeeId: number): Promise<{ casualLeaveBalance: number | null; medicalLeaveBalance: number | null; } | null>;
+  reviewLeaveWithTransaction(leaveId: number, status: string, reviewedBy: number): Promise<void>;
+  hasOverlappingLeave(employeeId: number, startDate: string, endDate: string): Promise<boolean>;
+
+
 
   createPayrollRecord(data: any): Promise<PayrollRecord>;
   getPayrollRecords(page: number, limit: number): Promise<{ records: any[]; total: number }>;
@@ -129,6 +145,9 @@ export class DatabaseStorage implements IStorage {
       userId: employees.userId,
       managerId: employees.managerId,
       role: users.role,
+      casualLeaveBalance: employees.casualLeaveBalance,
+      medicalLeaveBalance: employees.medicalLeaveBalance,
+      earnedLeaveBalance: employees.earnedLeaveBalance,
     }).from(employees)
       .leftJoin(users, eq(employees.userId, users.id))
       .where(and(...conditions))
@@ -151,15 +170,30 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createEmployee(data: any): Promise<Employee> {
-    const empCount = await db.select({ value: count() }).from(employees);
-    const code = `EMP${String((empCount[0].value || 0) + 1).padStart(4, "0")}`;
+  return await db.transaction(async (tx) => {
+    // 1️⃣ Insert with temporary code
+    const [inserted] = await tx
+      .insert(employees)
+      .values({
+        ...data,
+        employeeCode: "TEMP",
+      })
+      .returning();
 
-    const [emp] = await db.insert(employees).values({
-      ...data,
-      employeeCode: code,
-    }).returning();
-    return emp;
-  }
+    // 2️⃣ Generate deterministic code from real ID
+    const employeeCode = `EMP${String(inserted.id).padStart(4, "0")}`;
+
+    // 3️⃣ Update row with correct code
+    const [updated] = await tx
+      .update(employees)
+      .set({ employeeCode })
+      .where(eq(employees.id, inserted.id))
+      .returning();
+
+    return updated;
+  });
+}
+
 
   async updateEmployee(id: number, data: any): Promise<Employee | undefined> {
     const [emp] = await db.update(employees).set(data).where(eq(employees.id, id)).returning();
@@ -192,19 +226,81 @@ export class DatabaseStorage implements IStorage {
     return record || undefined;
   }
 
-  async getAttendanceHistory(employeeId: number, page: number, limit: number) {
+  async updateAttendanceByEmployeeAndDate(
+    employeeId: number,
+    date: string,
+    data: { clockIn?: Date | null; clockOut?: Date | null }
+  ): Promise<void> {
+    await db
+      .update(attendance)
+      .set({
+        clockIn: data.clockIn ?? null,
+        clockOut: data.clockOut ?? null,
+      })
+      .where(
+        and(
+          eq(attendance.employeeId, employeeId),
+          eq(attendance.date, date)
+        )
+      );
+  }
+
+
+
+  // async getAttendanceHistory(employeeId: number, page: number, limit: number) {
+  //   const offset = (page - 1) * limit;
+  //   const records = await db.select().from(attendance)
+  //     .where(eq(attendance.employeeId, employeeId))
+  //     .orderBy(desc(attendance.date))
+  //     .limit(limit)
+  //     .offset(offset);
+
+  //   const [{ value: total }] = await db.select({ value: count() }).from(attendance)
+  //     .where(eq(attendance.employeeId, employeeId));
+
+  //   return { records, total };
+  // }
+
+  async getAttendanceHistory(
+    employeeId: number,
+    page: number,
+    limit: number
+  ) {
     const offset = (page - 1) * limit;
-    const records = await db.select().from(attendance)
+
+    const recordsRaw = await db
+      .select({
+        attendance: attendance,
+        correctionStatus: attendanceCorrections.status,
+      })
+      .from(attendance)
+      .leftJoin(
+        attendanceCorrections,
+        and(
+          eq(attendance.employeeId, attendanceCorrections.employeeId),
+          eq(attendance.date, attendanceCorrections.date)
+        )
+      )
       .where(eq(attendance.employeeId, employeeId))
       .orderBy(desc(attendance.date))
       .limit(limit)
       .offset(offset);
 
-    const [{ value: total }] = await db.select({ value: count() }).from(attendance)
+    const records = recordsRaw.map((row) => ({
+      ...row.attendance,
+      correctionStatus: row.correctionStatus ?? null,
+    }));
+
+    const [{ value: total }] = await db
+      .select({ value: count() })
+      .from(attendance)
       .where(eq(attendance.employeeId, employeeId));
 
     return { records, total };
   }
+
+
+
 
   async getTeamAttendanceToday(managerEmployeeId: number): Promise<any[]> {
     const today = new Date().toISOString().split("T")[0];
@@ -242,6 +338,8 @@ export class DatabaseStorage implements IStorage {
     return value;
   }
 
+
+
   async createAttendanceCorrection(data: any): Promise<AttendanceCorrection> {
     const [record] = await db.insert(attendanceCorrections).values(data).returning();
     return record;
@@ -267,6 +365,15 @@ export class DatabaseStorage implements IStorage {
 
     const [{ value: total }] = await db.select({ value: count() }).from(attendanceCorrections);
     return { records, total };
+  }
+
+  async getCorrectionById(id: number): Promise<AttendanceCorrection | undefined> {
+    const [record] = await db
+      .select()
+      .from(attendanceCorrections)
+      .where(eq(attendanceCorrections.id, id));
+
+    return record || undefined;
   }
 
   async updateCorrectionStatus(id: number, status: string, reviewedBy: number): Promise<void> {
@@ -354,6 +461,229 @@ export class DatabaseStorage implements IStorage {
     const [record] = await db.select().from(leaveRequests).where(eq(leaveRequests.id, id));
     return record || undefined;
   }
+
+  async reviewLeaveWithTransaction(
+    leaveId: number,
+    status: string,
+    reviewedBy: number
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      const [leave] = await tx
+        .select()
+        .from(leaveRequests)
+        .where(eq(leaveRequests.id, leaveId))
+        .for("update");
+
+      if (!leave) {
+        throw new Error("Leave request not found");
+      }
+
+      if (leave.status === "APPROVED") {
+        throw new Error("Leave already approved");
+      }
+
+      if (status === "APPROVED") {
+        const [employee] = await tx
+          .select()
+          .from(employees)
+          .where(eq(employees.id, leave.employeeId))
+          .for("update");
+
+        if (!employee) {
+          throw new Error("Employee not found");
+        }
+
+        const days = leave.days;
+
+        if (leave.leaveType === "CASUAL") {
+          if ((employee.casualLeaveBalance || 0) < days) {
+            throw new Error("Insufficient casual leave balance");
+          }
+
+          await tx
+            .update(employees)
+            .set({
+              casualLeaveBalance:
+                sql`${employees.casualLeaveBalance} - ${days}`,
+            })
+            .where(eq(employees.id, employee.id));
+        }
+
+        if (leave.leaveType === "MEDICAL") {
+          if ((employee.medicalLeaveBalance || 0) < days) {
+            throw new Error("Insufficient medical leave balance");
+          }
+
+          await tx
+            .update(employees)
+            .set({
+              medicalLeaveBalance:
+                sql`${employees.medicalLeaveBalance} - ${days}`,
+            })
+            .where(eq(employees.id, employee.id));
+        }
+
+        if (leave.leaveType === "EARNED") {
+          if ((employee.earnedLeaveBalance || 0) < days) {
+            throw new Error("Insufficient earned leave balance");
+          }
+
+          await tx
+            .update(employees)
+            .set({
+              earnedLeaveBalance:
+                sql`${employees.earnedLeaveBalance} - ${days}`,
+            })
+            .where(eq(employees.id, employee.id));
+        }
+      }
+
+      await tx
+        .update(leaveRequests)
+        .set({
+          status: status as any,
+          reviewedBy,
+          reviewedAt: new Date(),
+        })
+        .where(eq(leaveRequests.id, leaveId));
+    });
+  }
+
+  async hasOverlappingLeave(
+    employeeId: number,
+    startDate: string,
+    endDate: string
+  ): Promise<boolean> {
+    const existing = await db
+      .select()
+      .from(leaveRequests)
+      .where(
+        and(
+          eq(leaveRequests.employeeId, employeeId),
+          or(
+            eq(leaveRequests.status, "APPROVED"),
+            eq(leaveRequests.status, "PENDING")
+          ),
+          lte(leaveRequests.startDate, endDate),
+          gte(leaveRequests.endDate, startDate)
+        )
+      );
+
+    return existing.length > 0;
+  }
+
+
+
+  async getEmployeeLeaveBalance(employeeId: number) {
+    const [emp] = await db
+      .select({
+        casualLeaveBalance: employees.casualLeaveBalance,
+        medicalLeaveBalance: employees.medicalLeaveBalance,
+      })
+      .from(employees)
+      .where(eq(employees.id, employeeId));
+
+    return emp || null;
+  }
+
+  private calculateLeaveDays(startDate: string, endDate: string): number {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    const diff =
+      Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+
+    return diff > 0 ? diff : 0;
+  }
+
+
+
+  async processMonthlyLeaveAccrual(): Promise<void> {
+    const today = new Date();
+
+    // 1️⃣ Only execute on the 1st
+    if (today.getDate() !== 1) {
+      return;
+    }
+
+    const firstOfCurrentMonth = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      1,
+      0, 0, 0, 0
+    );
+
+    const activeEmployees = await db
+      .select()
+      .from(employees)
+      .where(eq(employees.isActive, true));
+
+    for (const emp of activeEmployees) {
+      const lastAccrual = emp.lastLeaveAccrual
+        ? new Date(emp.lastLeaveAccrual)
+        : null;
+
+      const alreadyCreditedThisMonth =
+        lastAccrual &&
+        lastAccrual.getFullYear() === firstOfCurrentMonth.getFullYear() &&
+        lastAccrual.getMonth() === firstOfCurrentMonth.getMonth() &&
+        lastAccrual.getDate() === 1;
+
+      if (!alreadyCreditedThisMonth) {
+        await db
+          .update(employees)
+          .set({
+            casualLeaveBalance: sql`${employees.casualLeaveBalance} + 1`,
+            medicalLeaveBalance: sql`${employees.medicalLeaveBalance} + 1`,
+            lastLeaveAccrual: firstOfCurrentMonth,
+          })
+          .where(eq(employees.id, emp.id));
+      }
+    }
+  }
+
+  async markPastIncompleteAsUnpaid(): Promise<void> {
+    const today = new Date();
+
+    const todayDateOnly = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate()
+    )
+      .toISOString()
+      .split("T")[0];  // ← string
+
+
+    // Get all attendance records before today
+    const pastRecords = await db
+      .select()
+      .from(attendance)
+      .where(
+        and(
+          lt(attendance.date, todayDateOnly)
+        )
+      );
+
+    for (const record of pastRecords) {
+      const isIncomplete =
+        !record.clockIn || !record.clockOut;
+
+      const alreadyUnpaid =
+        record.status === "UNPAID";
+
+      if (isIncomplete && !alreadyUnpaid) {
+        await db
+          .update(attendance)
+          .set({
+            status: "UNPAID",
+          })
+          .where(eq(attendance.id, record.id));
+      }
+    }
+  }
+
+
+
 
   async createPayrollRecord(data: any): Promise<PayrollRecord> {
     const [record] = await db.insert(payrollRecords).values(data).returning();

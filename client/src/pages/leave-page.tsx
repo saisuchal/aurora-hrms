@@ -6,20 +6,56 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { leaveApplicationSchema } from "@shared/schema";
 import { z } from "zod";
-import { CalendarDays, Plus, Loader2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  CalendarDays,
+  Plus,
+  Loader2,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { format } from "date-fns";
 
-const statusColor: Record<string, "default" | "secondary" | "destructive"> = {
+const statusColor: Record<
+  string,
+  "default" | "secondary" | "destructive"
+> = {
   PENDING: "secondary",
   APPROVED: "default",
   REJECTED: "destructive",
@@ -30,14 +66,31 @@ export default function LeavePage() {
   const [page, setPage] = useState(1);
   const [applyOpen, setApplyOpen] = useState(false);
 
+  /* ---------------- LEAVE REQUESTS ---------------- */
+
   const { data: leaveData, isLoading } = useQuery<any>({
     queryKey: [`/api/leave?page=${page}`],
   });
 
+  /* ---------------- LEAVE BALANCE ---------------- */
+
+  const { data: balanceData, isLoading: balanceLoading } = useQuery<any>({
+    queryKey: ["/api/leave/balance"],
+  });
+
+  /* ---------------- FORM ---------------- */
+
   const form = useForm({
     resolver: zodResolver(leaveApplicationSchema),
-    defaultValues: { leaveType: "CASUAL" as const, startDate: "", endDate: "", reason: "" },
+    defaultValues: {
+      leaveType: "CASUAL" as const,
+      startDate: "",
+      endDate: "",
+      reason: "",
+    },
   });
+
+  /* ---------------- APPLY MUTATION ---------------- */
 
   const applyMutation = useMutation({
     mutationFn: async (data: z.infer<typeof leaveApplicationSchema>) => {
@@ -48,77 +101,161 @@ export default function LeavePage() {
       toast({ title: "Leave application submitted" });
       setApplyOpen(false);
       form.reset();
-      queryClient.invalidateQueries({ predicate: (q) => (q.queryKey[0] as string).startsWith("/api/leave") });
+
+      // Refresh leave list
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          typeof q.queryKey[0] === "string" &&
+          q.queryKey[0].startsWith("/api/leave"),
+      });
+
+      // Refresh balance
+      queryClient.invalidateQueries({
+        queryKey: ["/api/leave/balance"],
+      });
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to apply for leave", description: error.message, variant: "destructive" });
+      toast({
+        title: "Failed to apply for leave",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
   return (
     <div className="p-6 space-y-6">
+      {/* HEADER */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">Leave Management</h1>
-          <p className="text-muted-foreground">Apply for leave and track your requests</p>
+          <p className="text-muted-foreground">
+            Apply for leave and track your requests
+          </p>
         </div>
+
         <Dialog open={applyOpen} onOpenChange={setApplyOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="button-apply-leave">
+            <Button>
               <Plus className="h-4 w-4 mr-2" />
               Apply Leave
             </Button>
           </DialogTrigger>
+
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Apply for Leave</DialogTitle>
             </DialogHeader>
+
             <Form {...form}>
-              <form onSubmit={form.handleSubmit((d) => applyMutation.mutate(d))} className="space-y-4">
-                <FormField control={form.control} name="leaveType" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Leave Type</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-leave-type">
-                          <SelectValue placeholder="Select leave type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="SICK">Sick Leave</SelectItem>
-                        <SelectItem value="CASUAL">Casual Leave</SelectItem>
-                        <SelectItem value="EARNED">Earned Leave</SelectItem>
-                        <SelectItem value="UNPAID">Unpaid Leave</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+              <form
+                onSubmit={form.handleSubmit((d) =>
+                  applyMutation.mutate(d)
+                )}
+                className="space-y-4"
+              >
+                {/* Leave Type */}
+                <FormField
+                  control={form.control}
+                  name="leaveType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Leave Type</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select leave type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem
+                            value="CASUAL"
+                            disabled={(balanceData?.casual ?? 0) <= 0}
+                          >
+                            Casual Leave
+                          </SelectItem>
+
+                          <SelectItem
+                            value="MEDICAL"
+                            disabled={(balanceData?.medical ?? 0) <= 0}
+                          >
+                            Medical Leave
+                          </SelectItem>
+
+                          <SelectItem value="EARNED">
+                            Earned Leave
+                          </SelectItem>
+
+                          <SelectItem value="UNPAID">
+                            Unpaid Leave
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Dates */}
                 <div className="grid grid-cols-2 gap-4">
-                  <FormField control={form.control} name="startDate" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Start Date</FormLabel>
-                      <FormControl><Input data-testid="input-start-date" type="date" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="endDate" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>End Date</FormLabel>
-                      <FormControl><Input data-testid="input-end-date" type="date" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  <FormField
+                    control={form.control}
+                    name="startDate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Start Date</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="endDate"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>End Date</FormLabel>
+                        <FormControl>
+                          <Input type="date" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
-                <FormField control={form.control} name="reason" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Reason</FormLabel>
-                    <FormControl><Textarea data-testid="input-leave-reason" placeholder="Provide a reason for your leave..." {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <Button data-testid="button-submit-leave" type="submit" className="w-full" disabled={applyMutation.isPending}>
-                  {applyMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+
+                {/* Reason */}
+                <FormField
+                  control={form.control}
+                  name="reason"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reason</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          placeholder="Provide a reason..."
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={applyMutation.isPending}
+                >
+                  {applyMutation.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
                   Submit Application
                 </Button>
               </form>
@@ -127,6 +264,55 @@ export default function LeavePage() {
         </Dialog>
       </div>
 
+      {/* LEAVE BALANCE CARD */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Leave Balance</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {balanceLoading ? (
+            <Skeleton className="h-6 w-40" />
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Casual Leave
+                </p>
+                <p className="text-lg font-semibold">
+                  {balanceData?.casual ?? 0}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Medical Leave
+                </p>
+                <p className="text-lg font-semibold">
+                  {balanceData?.medical ?? 0}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Earned Leave
+                </p>
+                <p className="text-lg font-semibold">
+                  {balanceData?.earned ?? 0}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  Unpaid Leave
+                </p>
+                <p className="text-lg font-semibold">Unlimited</p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* LEAVE TABLE */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -134,6 +320,7 @@ export default function LeavePage() {
             My Leave Requests
           </CardTitle>
         </CardHeader>
+
         <CardContent>
           {isLoading ? (
             <Skeleton className="h-48" />
@@ -151,15 +338,33 @@ export default function LeavePage() {
                 </TableHeader>
                 <TableBody>
                   {leaveData.records.map((leave: any) => (
-                    <TableRow key={leave.id} data-testid={`row-leave-${leave.id}`}>
+                    <TableRow key={leave.id}>
                       <TableCell>
-                        <Badge variant="outline">{leave.leaveType}</Badge>
+                        <Badge variant="outline">
+                          {leave.leaveType}
+                        </Badge>
                       </TableCell>
-                      <TableCell>{format(new Date(leave.startDate), "MMM d, yyyy")}</TableCell>
-                      <TableCell>{format(new Date(leave.endDate), "MMM d, yyyy")}</TableCell>
-                      <TableCell className="max-w-[200px] truncate">{leave.reason}</TableCell>
                       <TableCell>
-                        <Badge variant={statusColor[leave.status] || "secondary"}>
+                        {format(
+                          new Date(leave.startDate),
+                          "MMM d, yyyy"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {format(
+                          new Date(leave.endDate),
+                          "MMM d, yyyy"
+                        )}
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate">
+                        {leave.reason}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            statusColor[leave.status] || "secondary"
+                          }
+                        >
                           {leave.status}
                         </Badge>
                       </TableCell>
@@ -167,13 +372,29 @@ export default function LeavePage() {
                   ))}
                 </TableBody>
               </Table>
+
+              {/* Pagination */}
               <div className="flex items-center justify-between mt-4">
-                <p className="text-sm text-muted-foreground">Page {page} of {leaveData.totalPages || 1}</p>
+                <p className="text-sm text-muted-foreground">
+                  Page {page} of {leaveData.totalPages || 1}
+                </p>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="icon" disabled={page <= 1} onClick={() => setPage(page - 1)} data-testid="button-prev-page">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    disabled={page <= 1}
+                    onClick={() => setPage(page - 1)}
+                  >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <Button variant="outline" size="icon" disabled={page >= (leaveData.totalPages || 1)} onClick={() => setPage(page + 1)} data-testid="button-next-page">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    disabled={
+                      page >= (leaveData.totalPages || 1)
+                    }
+                    onClick={() => setPage(page + 1)}
+                  >
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>
@@ -182,8 +403,9 @@ export default function LeavePage() {
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
               <AlertCircle className="h-8 w-8 mb-2" />
-              <p className="text-sm">No leave requests found</p>
-              <p className="text-xs">Click "Apply Leave" to submit a new request</p>
+              <p className="text-sm">
+                No leave requests found
+              </p>
             </div>
           )}
         </CardContent>
