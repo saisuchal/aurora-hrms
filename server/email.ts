@@ -18,11 +18,12 @@ export async function sendCredentialsEmail(
   tempPassword: string,
   appUrl: string
 ) {
-  await mg.messages.create(DOMAIN, {
-    from: `Aurora HRMS <postmaster@${DOMAIN}>`,
-    to: [toEmail],
-    subject: "Your HRMS Account Credentials",
-    html: `
+  try {
+    const result = await mg.messages.create(DOMAIN, {
+      from: `Aurora HRMS <postmaster@${DOMAIN}>`,
+      to: [toEmail],
+      subject: "Your HRMS Account Credentials",
+      html: `
       <h2>Welcome to HRMS</h2>
       <p>Hello ${firstName},</p>
       <p>Your account has been created. Below are your login details:</p>
@@ -33,7 +34,12 @@ export async function sendCredentialsEmail(
       <br/>
       <small>This is an automated email. Please do not reply.</small>
     `,
-  });
+    });
+
+    console.log("MAIL SENT:", result);
+  } catch (error) {
+    console.error("MAIL ERROR:", error);
+  }
 }
 
 export async function sendPasswordResetNotification(
