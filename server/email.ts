@@ -48,11 +48,12 @@ export async function sendPasswordResetNotification(
   newPassword: string,
   appUrl: string
 ) {
-  await mg.messages.create(DOMAIN, {
-    from: `Aurora HRMS <postmaster@${DOMAIN}>`,
-    to: [toEmail],
-    subject: "HRMS Password Reset",
-    html: `
+  try {
+    const result = await mg.messages.create(DOMAIN, {
+      from: `Aurora HRMS <postmaster@${DOMAIN}>`,
+      to: [toEmail],
+      subject: "HRMS Password Reset",
+      html: `
       <h2>Password Reset</h2>
       <p>Hello ${firstName},</p>
       <p>Your password has been reset by an administrator.</p>
@@ -62,5 +63,9 @@ export async function sendPasswordResetNotification(
       <br/>
       <small>This is an automated email. Please do not reply.</small>
     `,
-  });
+    });
+    console.log("MAIL SENT:", result);
+  } catch (error) {
+    console.error("MAIL ERROR:", error);
+  }
 }
