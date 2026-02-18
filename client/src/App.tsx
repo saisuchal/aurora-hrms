@@ -27,6 +27,7 @@ import CorrectionsPage from "@/pages/corrections-page";
 import PayrollPage from "@/pages/payroll-page";
 import AuditLogsPage from "@/pages/audit-logs-page";
 import SettingsPage from "@/pages/settings-page";
+import ForgotPasswordPage from "@/pages/forgot-password-page";
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -195,10 +196,8 @@ function AuthenticatedLayout() {
               <Route path="/leave" component={LeavePage} />
               <Route path="/payslips" component={PayslipsPage} />
               {(role === "MANAGER" || role === "HR" || role === "SUPER_ADMIN") && (
-                <Route path="/team" component={TeamPage} />
-              )}
-              {(role === "MANAGER" || role === "HR" || role === "SUPER_ADMIN") && (
                 <>
+                  <Route path="/team" component={TeamPage} />
                   <Route path="/employees" component={EmployeesPage} />
                   <Route path="/leave-approvals" component={LeaveApprovalsPage} />
                   <Route path="/corrections" component={CorrectionsPage} />
@@ -231,7 +230,12 @@ function AppRouter() {
   }
 
   if (!user) {
-    return <AuthPage />;
+    return (
+      <Switch>
+        <Route path="/forgot-password" component={ForgotPasswordPage} />
+        <Route component={AuthPage} />
+      </Switch>
+    );
   }
 
   if (user.mustResetPassword) {

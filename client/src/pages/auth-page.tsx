@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Link } from "wouter";
 import {
   Form,
   FormControl,
@@ -133,6 +134,14 @@ export default function AuthPage() {
                     )}
                     Sign In
                   </Button>
+                  <div className="text-right">
+                    <Link href="/forgot-password">
+                      <a className="text-sm text-primary hover:underline">
+                        Forgot Password?
+                      </a>
+                    </Link>
+                  </div>
+
                 </form>
               </Form>
             </CardContent>

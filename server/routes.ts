@@ -210,7 +210,7 @@ export async function registerRoutes(
 
   app.post(
     "/api/attendance/correction/:id/review",
-    requireRole("HR","MANAGER", "SUPER_ADMIN"),
+    requireRole("HR", "MANAGER", "SUPER_ADMIN"),
     async (req: Request<{ id: string }>, res: Response) => {
       try {
         const id = parseInt(req.params.id);
@@ -274,32 +274,32 @@ export async function registerRoutes(
   // });
 
   app.get(
-  "/api/attendance/summary",
-  requireRole("EMPLOYEE", "MANAGER", "HR", "SUPER_ADMIN"),
-  async (req, res) => {
-    try {
-      const month = Number(req.query.month);
-      const year = Number(req.query.year);
+    "/api/attendance/summary",
+    requireRole("EMPLOYEE", "MANAGER", "HR", "SUPER_ADMIN"),
+    async (req, res) => {
+      try {
+        const month = Number(req.query.month);
+        const year = Number(req.query.year);
 
-      const user = req.user!;
-      const employee = await storage.getEmployeeByUserId(user.id);
+        const user = req.user!;
+        const employee = await storage.getEmployeeByUserId(user.id);
 
-      if (!employee) {
-        return res.status(404).json({ message: "Employee not found" });
+        if (!employee) {
+          return res.status(404).json({ message: "Employee not found" });
+        }
+
+        const summary = await storage.getMonthlyAttendanceSummary(
+          employee.id,
+          month,
+          year
+        );
+
+        res.json(summary);
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
       }
-
-      const summary = await storage.getMonthlyAttendanceSummary(
-        employee.id,
-        month,
-        year
-      );
-
-      res.json(summary);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
     }
-  }
-);
+  );
 
 
 
@@ -749,6 +749,57 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
+
+  app.post("/api/password/forgot", async (req, res) => {
+    try {
+      const { username } = req.body;
+
+      if (!username || typeof username !== "string") {
+        return res.status(400).json({ message: "Username is required" });
+      }
+
+      const user = await storage.getUserByUsername(username);
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      const employee = await storage.getEmployeeByUserId(user.id);
+      if (!employee) {
+        return res.status(400).json({ message: "Employee record not found" });
+      }
+
+      const newPassword = generateRandomPassword(12);
+      const hashedPassword = await hashPassword(newPassword);
+
+      await storage.updateUserPassword(user.id, hashedPassword);
+      await storage.setMustResetPassword(user.id, true);
+
+      const appUrl = `${req.protocol}://${req.get("host")}`;
+
+      await sendPasswordResetNotification(
+        employee.email,
+        employee.firstName,
+        newPassword,
+        appUrl
+      );
+
+      await storage.createAuditLog({
+        userId: null,
+        action: "FORGOT_PASSWORD_RESET",
+        entity: "user",
+        entityId: user.id,
+        details: `Password reset requested for username ${username}`,
+        ipAddress: getClientIp(req),
+      });
+
+      res.json({ success: true });
+
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
 
   // Admin endpoints
   // app.get("/api/admin/leaves", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
