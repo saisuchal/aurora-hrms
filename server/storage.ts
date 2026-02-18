@@ -10,6 +10,7 @@ import { db } from "./db";
 import { eq, and, desc, sql, count, ilike, or, gte, lte, lt } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
+
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -28,14 +29,7 @@ export interface IStorage {
   getTodayAttendance(employeeId: number): Promise<Attendance | undefined>;
   createAttendance(data: any): Promise<Attendance>;
   updateAttendance(id: number, data: any): Promise<Attendance | undefined>;
-  getAttendanceHistory(
-    employeeId: number,
-    page: number,
-    limit: number
-  ): Promise<{
-    records: (Attendance & { correctionStatus: string | null })[];
-    total: number;
-  }>;
+  getAttendanceHistory(employeeId: number, page: number, limit: number): Promise<{ records: (Attendance & { correctionStatus: string | null })[]; total: number;}>;
   getTeamAttendanceToday(managerEmployeeId: number): Promise<any[]>;
   getDaysPresent(employeeId: number, month: number, year: number): Promise<number>;
 
@@ -56,7 +50,7 @@ export interface IStorage {
   getEmployeeLeaveBalance(employeeId: number): Promise<{ casualLeaveBalance: number | null; medicalLeaveBalance: number | null; } | null>;
   reviewLeaveWithTransaction(leaveId: number, status: string, reviewedBy: number): Promise<void>;
   hasOverlappingLeave(employeeId: number, startDate: string, endDate: string): Promise<boolean>;
-
+  getLeavesByManager(managerId: number, status: LeaveRequest["status"], page: number, limit: number): Promise<{ records: any[]; total: number }>;
 
 
   createPayrollRecord(data: any): Promise<PayrollRecord>;
@@ -571,6 +565,57 @@ export class DatabaseStorage implements IStorage {
 
     return existing.length > 0;
   }
+
+  async getLeavesByManager(
+  managerId: number,
+  status: LeaveRequest["status"],
+  page: number,
+  limit: number
+): Promise<{ records: any[]; total: number }> {
+
+  const offset = (page - 1) * limit;
+
+  const baseCondition = and(
+    eq(employees.managerId, managerId),
+    eq(leaveRequests.status, status)
+  );
+
+  const records = await db
+    .select({
+      id: leaveRequests.id,
+      leaveType: leaveRequests.leaveType,
+      startDate: leaveRequests.startDate,
+      endDate: leaveRequests.endDate,
+      reason: leaveRequests.reason,
+      status: leaveRequests.status,
+      days: leaveRequests.days,
+      firstName: employees.firstName,
+      lastName: employees.lastName,
+    })
+    .from(leaveRequests)
+    .innerJoin(
+      employees,
+      eq(leaveRequests.employeeId, employees.id)
+    )
+    .where(baseCondition)
+    .limit(limit)
+    .offset(offset);
+
+  const [{ value: total }] = await db
+    .select({ value: count() })
+    .from(leaveRequests)
+    .innerJoin(
+      employees,
+      eq(leaveRequests.employeeId, employees.id)
+    )
+    .where(baseCondition);
+
+  return { records, total };
+}
+
+
+
+
 
 
 

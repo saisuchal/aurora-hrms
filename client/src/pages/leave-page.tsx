@@ -292,7 +292,7 @@ export default function LeavePage() {
                 </p>
               </div>
 
-              <div>
+              {/* <div>
                 <p className="text-sm text-muted-foreground">
                   Earned Leave
                 </p>
@@ -306,7 +306,7 @@ export default function LeavePage() {
                   Unpaid Leave
                 </p>
                 <p className="text-lg font-semibold">-</p>
-              </div>
+              </div> */}
             </div>
           )}
         </CardContent>

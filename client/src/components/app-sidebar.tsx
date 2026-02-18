@@ -39,7 +39,7 @@ export function AppSidebar() {
   const employeeItems = [
     { title: "Attendance", url: "/attendance", icon: Clock },
     { title: "Leave", url: "/leave", icon: CalendarDays },
-    { title: "Payslips", url: "/payslips", icon: FileText },
+    // { title: "Payslips", url: "/payslips", icon: FileText },
   ];
 
   const managerItems = [
@@ -52,7 +52,7 @@ export function AppSidebar() {
     { title: "Employees", url: "/employees", icon: Users },
     { title: "Leave Approvals", url: "/leave-approvals", icon: ClipboardList },
     { title: "Corrections", url: "/corrections", icon: FileText },
-    { title: "Payroll", url: "/payroll", icon: DollarSign },
+    // { title: "Payroll", url: "/payroll", icon: DollarSign },
   ];
 
   const adminItems = [
@@ -82,7 +82,6 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Main</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {commonItems.map((item) => (

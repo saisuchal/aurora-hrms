@@ -48,20 +48,22 @@ export default function EmployeesPage() {
     queryKey: ["/api/employees/managers"],
   });
 
-  const form = useForm({
-    resolver: zodResolver(createEmployeeSchema),
-    defaultValues: {
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      department: "",
-      designation: "",
-      monthlySalary: 0,
-      dateOfJoining: "",
-      role: "EMPLOYEE" as const,
-    },
-  });
+  const form = useForm<z.infer<typeof createEmployeeSchema>>({
+  resolver: zodResolver(createEmployeeSchema),
+  defaultValues: {
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    department: "",
+    designation: "",
+    managerId: 0,
+    monthlySalary: 0,
+    dateOfJoining: "",
+    role: "EMPLOYEE",
+  },
+});
+
 
   const addMutation = useMutation({
     mutationFn: async (data: z.infer<typeof createEmployeeSchema>) => {

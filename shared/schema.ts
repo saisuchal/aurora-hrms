@@ -74,7 +74,7 @@ export const employees = pgTable(
   "employees",
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-    userId: integer("user_id").references(() => users.id),
+    userId: integer("user_id").references(() => users.id).unique(),
     employeeCode: varchar("employee_code", { length: 20 }).notNull().unique(),
     firstName: text("first_name").notNull(),
     lastName: text("last_name").notNull(),
@@ -349,6 +349,5 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
 export type InsertLeaveRequest = z.infer<typeof insertLeaveRequestSchema>;
 export type InsertAttendance = z.infer<typeof insertAttendanceSchema>;
-export type InsertAttendanceCorrection =
-  z.infer<typeof insertAttendanceCorrectionSchema>;
+export type InsertAttendanceCorrection = z.infer<typeof insertAttendanceCorrectionSchema>;
 

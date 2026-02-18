@@ -7,6 +7,9 @@ import {
   createEmployeeSchema, resetPasswordSchema, adminResetPasswordSchema,
 } from "@shared/schema";
 import { sendCredentialsEmail, sendPasswordResetNotification } from "./email";
+import { db } from "./db";
+import { users, employees } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
@@ -207,7 +210,7 @@ export async function registerRoutes(
 
   app.post(
     "/api/attendance/correction/:id/review",
-    requireRole("HR", "SUPER_ADMIN"),
+    requireRole("HR","MANAGER", "SUPER_ADMIN"),
     async (req: Request<{ id: string }>, res: Response) => {
       try {
         const id = parseInt(req.params.id);
@@ -287,6 +290,7 @@ export async function registerRoutes(
       const start = new Date(startDate);
       const end = new Date(endDate);
 
+      // ✅ Validate date order
       const diffDays =
         Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
@@ -294,7 +298,36 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid leave dates" });
       }
 
-      // ✅ Balance checks only for CASUAL and MEDICAL
+      // ✅ Allow only current month and next month
+      const now = new Date();
+
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+
+      const nextMonthDate = new Date(currentYear, currentMonth + 1, 1);
+      const nextMonth = nextMonthDate.getMonth();
+      const nextMonthYear = nextMonthDate.getFullYear();
+
+      const isStartValid =
+        (start.getMonth() === currentMonth &&
+          start.getFullYear() === currentYear) ||
+        (start.getMonth() === nextMonth &&
+          start.getFullYear() === nextMonthYear);
+
+      const isEndValid =
+        (end.getMonth() === currentMonth &&
+          end.getFullYear() === currentYear) ||
+        (end.getMonth() === nextMonth &&
+          end.getFullYear() === nextMonthYear);
+
+      if (!isStartValid || !isEndValid) {
+        return res.status(400).json({
+          message:
+            "Leave can only be applied for the current or next month",
+        });
+      }
+
+      // ✅ Balance checks
       if (leaveType === "CASUAL") {
         if ((employee.casualLeaveBalance || 0) < diffDays) {
           return res.status(400).json({
@@ -311,17 +344,18 @@ export async function registerRoutes(
         }
       }
 
+      // ✅ Overlapping check
       const overlapping = await storage.hasOverlappingLeave(
-  employee.id,
-  startDate,
-  endDate
-);
+        employee.id,
+        startDate,
+        endDate
+      );
 
-if (overlapping) {
-  return res.status(400).json({
-    message: "Leave overlaps with an existing request",
-  });
-}
+      if (overlapping) {
+        return res.status(400).json({
+          message: "Leave overlaps with an existing request",
+        });
+      }
 
       const record = await storage.createLeaveRequest({
         employeeId: employee.id,
@@ -334,10 +368,12 @@ if (overlapping) {
       });
 
       res.json(record);
+
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
+
 
 
 
@@ -382,56 +418,56 @@ if (overlapping) {
   // Team endpoints
 
   app.post(
-  "/api/leave/:id/review",
-  requireRole("HR", "SUPER_ADMIN", "MANAGER"),
-  async (req: Request<{ id: string }>, res: Response) => {
-    try {
-      const id = parseInt(req.params.id);
-      const { status } = req.body;
+    "/api/leave/:id/review",
+    requireRole("HR", "SUPER_ADMIN", "MANAGER"),
+    async (req: Request<{ id: string }>, res: Response) => {
+      try {
+        const id = parseInt(req.params.id);
+        const { status } = req.body;
 
-      if (!["APPROVED", "REJECTED"].includes(status)) {
-        return res.status(400).json({ message: "Invalid status" });
+        if (!["APPROVED", "REJECTED"].includes(status)) {
+          return res.status(400).json({ message: "Invalid status" });
+        }
+
+        await storage.reviewLeaveWithTransaction(
+          id,
+          status,
+          req.user!.id
+        );
+
+        await storage.createAuditLog({
+          userId: req.user!.id,
+          action: `LEAVE_${status}`,
+          entity: "leave_request",
+          entityId: id,
+          ipAddress: getClientIp(req),
+        });
+
+        res.json({ success: true });
+      } catch (err: any) {
+        res.status(400).json({ message: err.message });
       }
-
-      await storage.reviewLeaveWithTransaction(
-        id,
-        status,
-        req.user!.id
-      );
-
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: `LEAVE_${status}`,
-        entity: "leave_request",
-        entityId: id,
-        ipAddress: getClientIp(req),
-      });
-
-      res.json({ success: true });
-    } catch (err: any) {
-      res.status(400).json({ message: err.message });
     }
-  }
-);
+  );
 
 
   app.get("/api/leave/balance", requireAuth, async (req, res) => {
-  try {
-    const employee = await storage.getEmployeeByUserId(req.user!.id);
-    if (!employee) {
-      return res.status(404).json({ message: "Employee not found" });
-    }
+    try {
+      const employee = await storage.getEmployeeByUserId(req.user!.id);
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
 
-    res.json({
-      casual: employee.casualLeaveBalance || 0,
-      medical: employee.medicalLeaveBalance || 0,
-      earned: employee.earnedLeaveBalance || 0,
-      unpaid: "-"
-    });
-  } catch (err: any) {
-    res.status(500).json({ message: err.message });
-  }
-});
+      res.json({
+        casual: employee.casualLeaveBalance || 0,
+        medical: employee.medicalLeaveBalance || 0,
+        earned: employee.earnedLeaveBalance || 0,
+        unpaid: "-"
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
 
 
@@ -484,38 +520,88 @@ if (overlapping) {
   app.post("/api/employees", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
     try {
       const parsed = createEmployeeSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
-
-      const existing = await storage.getEmployeeByEmail(parsed.data.email);
-      if (existing) return res.status(400).json({ message: "Employee with this email already exists" });
-
-      const tempPassword = generateRandomPassword(12);
-      const username = parsed.data.email.split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
-
-      let finalUsername = username;
-      let counter = 1;
-      while (await storage.getUserByUsername(finalUsername)) {
-        finalUsername = `${username}${counter}`;
-        counter++;
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.errors[0].message });
       }
 
-      const hashedPassword = await hashPassword(tempPassword);
-      const user = await storage.createUser({
-        username: finalUsername,
-        password: hashedPassword,
-        role: parsed.data.role || "EMPLOYEE",
-        isActive: true,
-        mustResetPassword: true,
-      });
+      const existing = await storage.getEmployeeByEmail(parsed.data.email);
+      if (existing) {
+        return res.status(400).json({ message: "Employee with this email already exists" });
+      }
 
-      const employee = await storage.createEmployee({
-        ...parsed.data,
-        userId: user.id,
+      const tempPassword = generateRandomPassword(12);
+      const baseUsername = parsed.data.email
+        .split("@")[0]
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+
+      const result = await db.transaction(async (tx) => {
+
+        // 🔹 Ensure unique username (safe inside transaction)
+        let finalUsername = baseUsername;
+        let counter = 1;
+
+        while (true) {
+          const [existingUser] = await tx
+            .select()
+            .from(users)
+            .where(eq(users.username, finalUsername));
+
+          if (!existingUser) break;
+
+          finalUsername = `${baseUsername}${counter}`;
+          counter++;
+        }
+
+        const hashedPassword = await hashPassword(tempPassword);
+
+        // 🔹 Create User
+        const [user] = await tx
+          .insert(users)
+          .values({
+            username: finalUsername,
+            password: hashedPassword,
+            role: parsed.data.role || "EMPLOYEE",
+            isActive: true,
+            mustResetPassword: true,
+          })
+          .returning();
+
+        // 🔹 Create Employee (temporary code first)
+        const [employee] = await tx
+          .insert(employees)
+          .values({
+            ...parsed.data,
+            userId: user.id,
+            employeeCode: "TEMP", // will update below
+          })
+          .returning();
+
+        // 🔹 Safe employeeCode derived from ID
+        const generatedCode = `EMP${String(employee.id).padStart(4, "0")}`;
+
+        await tx
+          .update(employees)
+          .set({ employeeCode: generatedCode })
+          .where(eq(employees.id, employee.id));
+
+        return {
+          user,
+          employee: { ...employee, employeeCode: generatedCode },
+          username: finalUsername,
+        };
       });
 
       const appUrl = `${req.protocol}://${req.get("host")}`;
+
       try {
-        await sendCredentialsEmail(parsed.data.email, parsed.data.firstName, finalUsername, tempPassword, appUrl);
+        await sendCredentialsEmail(
+          parsed.data.email,
+          parsed.data.firstName,
+          result.username,
+          tempPassword,
+          appUrl
+        );
       } catch (emailErr: any) {
         console.error("Failed to send credentials email:", emailErr.message);
       }
@@ -524,16 +610,18 @@ if (overlapping) {
         userId: req.user!.id,
         action: "CREATE_EMPLOYEE",
         entity: "employee",
-        entityId: employee.id,
-        details: `Created employee ${parsed.data.firstName} ${parsed.data.lastName} with username ${finalUsername}`,
+        entityId: result.employee.id,
+        details: `Created employee ${parsed.data.firstName} ${parsed.data.lastName} with username ${result.username}`,
         ipAddress: getClientIp(req),
       });
 
-      res.status(201).json(employee);
+      res.status(201).json(result.employee);
+
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
+
 
   app.post("/api/employees/:id/toggle-active", requireRole("HR", "SUPER_ADMIN"), async (req: Request<{ id: string }>, res: Response) => {
     try {
@@ -633,19 +721,67 @@ if (overlapping) {
   });
 
   // Admin endpoints
-  app.get("/api/admin/leaves", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
-    try {
-      const status = (req.query.status as string) || "PENDING";
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = 10;
-      const { records, total } = await storage.getAllLeaves(status, page, limit);
-      res.json({ records, total, totalPages: Math.ceil(total / limit) });
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  });
+  // app.get("/api/admin/leaves", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
+  //   try {
+  //     const status = (req.query.status as string) || "PENDING";
+  //     const page = parseInt(req.query.page as string) || 1;
+  //     const limit = 10;
+  //     const { records, total } = await storage.getAllLeaves(status, page, limit);
+  //     res.json({ records, total, totalPages: Math.ceil(total / limit) });
+  //   } catch (err: any) {
+  //     res.status(500).json({ message: err.message });
+  //   }
+  // });
 
-  app.get("/api/admin/corrections", requireRole("HR","MANAGER", "SUPER_ADMIN"), async (req, res) => {
+  app.get(
+    "/api/leaves",
+    requireRole("MANAGER", "HR", "SUPER_ADMIN"),
+    async (req, res) => {
+      try {
+        const status = (req.query.status as string) || "PENDING";
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = 10;
+
+        const user = req.user!;
+        const employee = await storage.getEmployeeByUserId(user.id);
+
+        if (!employee) {
+          return res.json({ records: [], total: 0, totalPages: 0 });
+        }
+
+        let result;
+
+        if (user.role === "MANAGER") {
+          // Manager → only their team
+          result = await storage.getLeavesByManager(
+            employee.id,
+            status as "PENDING" | "APPROVED" | "REJECTED",
+            page,
+            limit
+          );
+        } else {
+          // HR / SUPER_ADMIN → all leaves
+          result = await storage.getAllLeaves(
+            status,
+            page,
+            limit
+          );
+        }
+
+        res.json({
+          records: result.records,
+          total: result.total,
+          totalPages: Math.ceil(result.total / limit),
+        });
+
+      } catch (err: any) {
+        res.status(500).json({ message: err.message });
+      }
+    }
+  );
+
+
+  app.get("/api/admin/corrections", requireRole("HR", "MANAGER", "SUPER_ADMIN"), async (req, res) => {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = 10;
