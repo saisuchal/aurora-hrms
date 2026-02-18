@@ -29,9 +29,10 @@ export interface IStorage {
   getTodayAttendance(employeeId: number): Promise<Attendance | undefined>;
   createAttendance(data: any): Promise<Attendance>;
   updateAttendance(id: number, data: any): Promise<Attendance | undefined>;
-  getAttendanceHistory(employeeId: number, page: number, limit: number): Promise<{ records: (Attendance & { correctionStatus: string | null })[]; total: number;}>;
+  getAttendanceHistory(employeeId: number, page: number, limit: number): Promise<{ records: (Attendance & { correctionStatus: string | null })[]; total: number; }>;
   getTeamAttendanceToday(managerEmployeeId: number): Promise<any[]>;
   getDaysPresent(employeeId: number, month: number, year: number): Promise<number>;
+  getMonthlyAttendanceSummary(employeeId: number, month: number, year: number): Promise<{ workingDays: number; presentDays: number; absentDays: number; }>;
 
   createAttendanceCorrection(data: any): Promise<AttendanceCorrection>;
   getCorrections(page: number, limit: number): Promise<{ records: any[]; total: number }>;
@@ -332,6 +333,75 @@ export class DatabaseStorage implements IStorage {
     return value;
   }
 
+  async getMonthlyAttendanceSummary(
+    employeeId: number,
+    month: number,
+    year: number
+  ): Promise<{
+    workingDays: number;
+    presentDays: number;
+    absentDays: number;
+  }> {
+
+    const today = new Date();
+
+    const startDate = new Date(year, month - 1, 1);
+
+    let endDate: Date;
+
+    // 🔥 If current month → calculate only till today
+    if (
+      year === today.getFullYear() &&
+      month === today.getMonth() + 1
+    ) {
+      endDate = today;
+    } else {
+      // Past month → full month
+      endDate = new Date(year, month, 0);
+    }
+
+    const start = startDate.toISOString().split("T")[0];
+    const end = endDate.toISOString().split("T")[0];
+
+    // 1️⃣ Count PRESENT days
+    const [{ value: presentDaysRaw }] = await db
+      .select({ value: count() })
+      .from(attendance)
+      .where(
+        and(
+          eq(attendance.employeeId, employeeId),
+          gte(attendance.date, start),
+          lte(attendance.date, end),
+          eq(attendance.status, "PRESENT")
+        )
+      );
+
+    const presentDays = Number(presentDaysRaw || 0);
+
+    // 2️⃣ Calculate working days (exclude Sundays)
+    let workingDays = 0;
+    const current = new Date(startDate);
+
+    while (current <= endDate) {
+      if (current.getDay() !== 0) {
+        workingDays++;
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    // 3️⃣ Absent = workingDays − present
+    const absentDays = Math.max(workingDays - presentDays, 0);
+
+    return {
+      workingDays,
+      presentDays,
+      absentDays,
+    };
+  }
+
+
+
+
 
 
   async createAttendanceCorrection(data: any): Promise<AttendanceCorrection> {
@@ -567,51 +637,51 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getLeavesByManager(
-  managerId: number,
-  status: LeaveRequest["status"],
-  page: number,
-  limit: number
-): Promise<{ records: any[]; total: number }> {
+    managerId: number,
+    status: LeaveRequest["status"],
+    page: number,
+    limit: number
+  ): Promise<{ records: any[]; total: number }> {
 
-  const offset = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
-  const baseCondition = and(
-    eq(employees.managerId, managerId),
-    eq(leaveRequests.status, status)
-  );
+    const baseCondition = and(
+      eq(employees.managerId, managerId),
+      eq(leaveRequests.status, status)
+    );
 
-  const records = await db
-    .select({
-      id: leaveRequests.id,
-      leaveType: leaveRequests.leaveType,
-      startDate: leaveRequests.startDate,
-      endDate: leaveRequests.endDate,
-      reason: leaveRequests.reason,
-      status: leaveRequests.status,
-      days: leaveRequests.days,
-      firstName: employees.firstName,
-      lastName: employees.lastName,
-    })
-    .from(leaveRequests)
-    .innerJoin(
-      employees,
-      eq(leaveRequests.employeeId, employees.id)
-    )
-    .where(baseCondition)
-    .limit(limit)
-    .offset(offset);
+    const records = await db
+      .select({
+        id: leaveRequests.id,
+        leaveType: leaveRequests.leaveType,
+        startDate: leaveRequests.startDate,
+        endDate: leaveRequests.endDate,
+        reason: leaveRequests.reason,
+        status: leaveRequests.status,
+        days: leaveRequests.days,
+        firstName: employees.firstName,
+        lastName: employees.lastName,
+      })
+      .from(leaveRequests)
+      .innerJoin(
+        employees,
+        eq(leaveRequests.employeeId, employees.id)
+      )
+      .where(baseCondition)
+      .limit(limit)
+      .offset(offset);
 
-  const [{ value: total }] = await db
-    .select({ value: count() })
-    .from(leaveRequests)
-    .innerJoin(
-      employees,
-      eq(leaveRequests.employeeId, employees.id)
-    )
-    .where(baseCondition);
+    const [{ value: total }] = await db
+      .select({ value: count() })
+      .from(leaveRequests)
+      .innerJoin(
+        employees,
+        eq(leaveRequests.employeeId, employees.id)
+      )
+      .where(baseCondition);
 
-  return { records, total };
-}
+    return { records, total };
+  }
 
 
 

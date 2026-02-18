@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,8 +7,23 @@ import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Loader2, Building2, Shield, Users, Clock } from "lucide-react";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Loader2,
+  Building2,
+  Shield,
+  Users,
+  Clock,
+  Eye,
+  EyeOff,
+} from "lucide-react";
 
 const loginSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
@@ -17,6 +33,7 @@ const loginSchema = z.object({
 export default function AuthPage() {
   const { user, loginMutation } = useAuth();
   const [, navigate] = useLocation();
+  const [showPassword, setShowPassword] = useState(false);
 
   const loginForm = useForm({
     resolver: zodResolver(loginSchema),
@@ -39,7 +56,9 @@ export default function AuthPage() {
           <div className="mb-8">
             <div className="flex items-center gap-2 mb-2">
               <Building2 className="h-8 w-8 text-primary" />
-              <h1 className="text-2xl font-bold" data-testid="text-app-title">AURORA HRMS</h1>
+              <h1 className="text-2xl font-bold">
+                AURORA HRMS
+              </h1>
             </div>
             <p className="text-muted-foreground">
               Sign in to your account
@@ -60,12 +79,16 @@ export default function AuthPage() {
                       <FormItem>
                         <FormLabel>Username</FormLabel>
                         <FormControl>
-                          <Input data-testid="input-username" placeholder="Enter your username" {...field} />
+                          <Input
+                            placeholder="Enter your username"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+
                   <FormField
                     control={loginForm.control}
                     name="password"
@@ -73,19 +96,41 @@ export default function AuthPage() {
                       <FormItem>
                         <FormLabel>Password</FormLabel>
                         <FormControl>
-                          <Input data-testid="input-password" type="password" placeholder="Enter your password" {...field} />
+                          <div className="relative">
+                            <Input
+                              type={showPassword ? "text" : "password"}
+                              placeholder="Enter your password"
+                              {...field}
+                              className="pr-10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowPassword((prev) => !prev)
+                              }
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            >
+                              {showPassword ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+
                   <Button
-                    data-testid="button-login"
                     type="submit"
                     className="w-full"
                     disabled={loginMutation.isPending}
                   >
-                    {loginMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {loginMutation.isPending && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
                     Sign In
                   </Button>
                 </form>
@@ -101,8 +146,8 @@ export default function AuthPage() {
             Human Resource Management System
           </h2>
           <p className="text-primary-foreground/80 mb-8 text-lg">
-            Streamline your workforce management with powerful tools for attendance tracking,
-            leave management, and payroll processing.
+            Streamline your workforce management with powerful tools for
+            attendance tracking, leave management, and payroll processing.
           </p>
           <div className="space-y-4">
             <div className="flex items-center gap-3">

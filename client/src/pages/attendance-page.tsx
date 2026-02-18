@@ -45,20 +45,20 @@ import { format } from "date-fns";
 
 const correctionSchema = z
   .object({
-    date: z.string().min(1, "Date is required"),
-    reason: z.string().min(5, "Reason must be at least 5 characters"),
+    date: z.string().min(1),
+    reason: z.string().min(5),
     requestedClockIn: z.string().optional(),
     requestedClockOut: z.string().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.requestedClockIn && data.requestedClockOut) {
-      const clockIn = new Date(data.requestedClockIn);
-      const clockOut = new Date(data.requestedClockOut);
-
-      if (clockOut <= clockIn) {
+      if (
+        new Date(data.requestedClockOut) <=
+        new Date(data.requestedClockIn)
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Clock-out time must be greater than clock-in time",
+          message: "Clock-out must be after clock-in",
           path: ["requestedClockOut"],
         });
       }
@@ -67,6 +67,7 @@ const correctionSchema = z
 
 export default function AttendancePage() {
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const [page, setPage] = useState(1);
   const [correctionOpen, setCorrectionOpen] = useState(false);
@@ -76,17 +77,44 @@ export default function AttendancePage() {
     max: string;
   } | null>(null);
 
-  // const { data: historyData, isLoading: historyLoading } = useQuery<any>({
-  //   queryKey: ["/api/attendance/history", page],
-  // });
+  /* =========================
+     MONTHLY SUMMARY
+  ========================= */
 
-  const { user } = useAuth();
+  const today = new Date();
+  const currentMonth = today.getMonth() + 1;
+  const currentYear = today.getFullYear();
 
-  const { data: historyData, isLoading: historyLoading } = useQuery<any>({
-    queryKey: ["/api/attendance/history", user?.id, page],
-    enabled: !!user, // prevents query before auth loads
-  });
+  const { data: summaryData, isLoading: summaryLoading } =
+    useQuery<any>({
+      queryKey: [
+        "/api/attendance/summary",
+        user?.id,
+        currentMonth,
+        currentYear,
+      ],
+      queryFn: async () => {
+        const res = await fetch(
+          `/api/attendance/summary?month=${currentMonth}&year=${currentYear}`
+        );
+        return res.json();
+      },
+      enabled: !!user,
+    });
 
+  /* =========================
+     ATTENDANCE HISTORY
+  ========================= */
+
+  const { data: historyData, isLoading: historyLoading } =
+    useQuery<any>({
+      queryKey: ["/api/attendance/history", user?.id, page],
+      enabled: !!user,
+    });
+
+  /* =========================
+     CORRECTION FORM
+  ========================= */
 
   const correctionForm = useForm({
     resolver: zodResolver(correctionSchema),
@@ -123,51 +151,12 @@ export default function AttendancePage() {
     setCorrectionOpen(true);
   };
 
-  // const correctionMutation = useMutation({
-  //   mutationFn: async (data: z.infer<typeof correctionSchema>) => {
-  //     const payload = {
-  //       date: selectedRecord
-  //         ? format(new Date(selectedRecord.date), "yyyy-MM-dd")
-  //         : format(new Date(data.date), "yyyy-MM-dd"),
-  //       reason: data.reason,
-  //       requestedClockIn: data.requestedClockIn
-  //         ? new Date(data.requestedClockIn).toISOString()
-  //         : null,
-  //       requestedClockOut: data.requestedClockOut
-  //         ? new Date(data.requestedClockOut).toISOString()
-  //         : null,
-  //     };
-
-  //     const res = await apiRequest(
-  //       "POST",
-  //       "/api/attendance/correction",
-  //       payload
-  //     );
-
-  //     return await res.json();
-  //   },
-  //   onSuccess: () => {
-  //     toast({ title: "Correction request submitted" });
-  //     setCorrectionOpen(false);
-  //     correctionForm.reset();
-  //     setSelectedRecord(null);
-  //     setDateBounds(null);
-  //   },
-  //   onError: (error: Error) => {
-  //     toast({
-  //       title: "Failed to submit correction",
-  //       description: error.message,
-  //       variant: "destructive",
-  //     });
-  //   },
-  // });
-
   const correctionMutation = useMutation({
     mutationFn: async (data: z.infer<typeof correctionSchema>) => {
       const payload = {
         date: selectedRecord
           ? format(new Date(selectedRecord.date), "yyyy-MM-dd")
-          : format(new Date(data.date), "yyyy-MM-dd"),
+          : data.date,
         reason: data.reason,
         requestedClockIn: data.requestedClockIn
           ? new Date(data.requestedClockIn).toISOString()
@@ -183,7 +172,7 @@ export default function AttendancePage() {
         payload
       );
 
-      return await res.json();
+      return res.json();
     },
 
     onSuccess: () => {
@@ -194,28 +183,93 @@ export default function AttendancePage() {
       setSelectedRecord(null);
       setDateBounds(null);
 
-      // 🔥 THIS IS WHAT YOU NEED
       queryClient.invalidateQueries({
         queryKey: ["/api/attendance/history", user?.id],
       });
 
       queryClient.invalidateQueries({
-        queryKey: ["/api/attendance/today", user?.id],
+        queryKey: [
+          "/api/attendance/summary",
+          user?.id,
+        ],
       });
     },
 
-    onError: (error: Error) => {
+    onError: () => {
       toast({
         title: "Failed to submit correction",
-        // description: error.message,
-        description: "You have already submitted your correction request. Please wait for it to be reviewed.",
+        description:
+          "You already submitted a correction for this date.",
         variant: "destructive",
       });
     },
   });
 
+  /* =========================
+     UI
+  ========================= */
+
   return (
     <div className="p-6 space-y-6">
+
+      {/* =========================
+         MONTHLY SUMMARY CARD
+      ========================= */}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            {format(
+              new Date(currentYear, currentMonth - 1),
+              "MMMM yyyy"
+            )}{" "}
+            Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {summaryLoading ? (
+            <Skeleton className="h-20" />
+          ) : summaryData ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-xl bg-muted">
+                <p className="text-sm text-muted-foreground">
+                  Working Days
+                </p>
+                <p className="text-2xl font-bold">
+                  {summaryData.workingDays}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-green-50">
+                <p className="text-sm text-muted-foreground">
+                  Present
+                </p>
+                <p className="text-2xl font-bold text-green-600">
+                  {summaryData.presentDays}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-red-50">
+                <p className="text-sm text-muted-foreground">
+                  Absent
+                </p>
+                <p className="text-2xl font-bold text-red-600">
+                  {summaryData.absentDays}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No summary available
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* =========================
+         ATTENDANCE HISTORY
+      ========================= */}
+
       <Card>
         <CardHeader>
           <CardTitle>Attendance History</CardTitle>
@@ -239,63 +293,42 @@ export default function AttendancePage() {
                   {historyData.records.map((record: any) => (
                     <TableRow key={record.id}>
                       <TableCell>
-                        {format(new Date(record.date), "MMM d, yyyy")}
+                        {format(
+                          new Date(record.date),
+                          "MMM d, yyyy"
+                        )}
                       </TableCell>
 
                       <TableCell>
                         {record.clockIn
-                          ? new Date(record.clockIn).toLocaleTimeString()
+                          ? new Date(
+                              record.clockIn
+                            ).toLocaleTimeString()
                           : "-"}
                       </TableCell>
 
                       <TableCell>
                         {record.clockOut
-                          ? new Date(record.clockOut).toLocaleTimeString()
+                          ? new Date(
+                              record.clockOut
+                            ).toLocaleTimeString()
                           : "-"}
                       </TableCell>
 
-                      {/* <TableCell>
-                        <Badge
-                          variant={
-                            record.status === "PRESENT"
-                              ? "default"
-                              : "secondary"
-                          }
-                        >
-                          {record.status}
-                        </Badge>
-                      </TableCell> */}
-
                       <TableCell>
-                        <Badge
-                          variant={
-                            record.correctionStatus === "APPROVED"
-                              ? "default"
-                              : record.correctionStatus === "REJECTED"
-                                ? "destructive"
-                                : record.correctionStatus === "PENDING"
-                                  ? "secondary"
-                                  : record.status === "PRESENT"
-                                    ? "default"
-                                    : "secondary"
-                          }
-                        >
-                          {record.correctionStatus === "PENDING"
-                            ? "Correction Requested"
-                            : record.correctionStatus === "APPROVED"
-                              ? "Correction Approved"
-                              : record.correctionStatus === "REJECTED"
-                                ? "Correction Rejected"
-                                : record.status}
+                        <Badge>
+                          {record.correctionStatus ??
+                            record.status}
                         </Badge>
                       </TableCell>
-
 
                       <TableCell>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => openCorrectionForRecord(record)}
+                          onClick={() =>
+                            openCorrectionForRecord(record)
+                          }
                         >
                           <FileEdit className="h-4 w-4 mr-1" />
                           Correct
@@ -322,7 +355,9 @@ export default function AttendancePage() {
                   <Button
                     variant="outline"
                     size="icon"
-                    disabled={page >= (historyData.totalPages || 1)}
+                    disabled={
+                      page >= (historyData.totalPages || 1)
+                    }
                     onClick={() => setPage(page + 1)}
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -339,10 +374,19 @@ export default function AttendancePage() {
         </CardContent>
       </Card>
 
-      <Dialog open={correctionOpen} onOpenChange={setCorrectionOpen}>
+      {/* =========================
+         CORRECTION DIALOG
+      ========================= */}
+
+      <Dialog
+        open={correctionOpen}
+        onOpenChange={setCorrectionOpen}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Request Attendance Correction</DialogTitle>
+            <DialogTitle>
+              Request Attendance Correction
+            </DialogTitle>
           </DialogHeader>
 
           <Form {...correctionForm}>
@@ -354,69 +398,12 @@ export default function AttendancePage() {
             >
               <FormField
                 control={correctionForm.control}
-                name="date"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Date</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="date"
-                        {...field}
-                        readOnly
-                        className="pointer-events-none bg-muted"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={correctionForm.control}
                 name="reason"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Reason</FormLabel>
                     <FormControl>
                       <Textarea {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={correctionForm.control}
-                name="requestedClockIn"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Corrected Clock In</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="datetime-local"
-                        {...field}
-                        min={dateBounds?.min}
-                        max={dateBounds?.max}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={correctionForm.control}
-                name="requestedClockOut"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Corrected Clock Out</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="datetime-local"
-                        {...field}
-                        min={dateBounds?.min}
-                        max={dateBounds?.max}
-                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

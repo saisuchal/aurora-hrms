@@ -273,6 +273,36 @@ export async function registerRoutes(
   //   }
   // });
 
+  app.get(
+  "/api/attendance/summary",
+  requireRole("EMPLOYEE", "MANAGER", "HR", "SUPER_ADMIN"),
+  async (req, res) => {
+    try {
+      const month = Number(req.query.month);
+      const year = Number(req.query.year);
+
+      const user = req.user!;
+      const employee = await storage.getEmployeeByUserId(user.id);
+
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+
+      const summary = await storage.getMonthlyAttendanceSummary(
+        employee.id,
+        month,
+        year
+      );
+
+      res.json(summary);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  }
+);
+
+
+
   app.post("/api/leave", requireAuth, async (req, res) => {
     try {
       const parsed = leaveApplicationSchema.safeParse(req.body);
