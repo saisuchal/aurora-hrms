@@ -146,19 +146,52 @@ export async function registerRoutes(
   });
 
   // Attendance history
+  // app.get("/api/attendance/history", requireAuth, async (req, res) => {
+  //   try {
+  //     const employee = await storage.getEmployeeByUserId(req.user!.id);
+  //     if (!employee) return res.json({ records: [], total: 0, totalPages: 0 });
+
+  //     const page = parseInt(req.query.page as string) || 1;
+  //     const limit = 10;
+  //     const { records, total } = await storage.getAttendanceHistory(employee.id, page, limit);
+  //     res.json({ records, total, totalPages: Math.ceil(total / limit) });
+  //   } catch (err: any) {
+  //     res.status(500).json({ message: err.message });
+  //   }
+  // });
+
   app.get("/api/attendance/history", requireAuth, async (req, res) => {
     try {
       const employee = await storage.getEmployeeByUserId(req.user!.id);
-      if (!employee) return res.json({ records: [], total: 0, totalPages: 0 });
+      if (!employee) {
+        return res.json({ records: [], total: 0, totalPages: 0 });
+      }
 
       const page = parseInt(req.query.page as string) || 1;
       const limit = 10;
-      const { records, total } = await storage.getAttendanceHistory(employee.id, page, limit);
-      res.json({ records, total, totalPages: Math.ceil(total / limit) });
+
+      const month = Number(req.query.month);
+      const year = Number(req.query.year);
+
+      const { records, total } =
+        await storage.getAttendanceHistory(
+          employee.id,
+          page,
+          limit,
+          month,
+          year
+        );
+
+      res.json({
+        records,
+        total,
+        totalPages: Math.ceil(total / limit),
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
   });
+
 
   // Attendance correction request
   app.post("/api/attendance/correction", requireAuth, async (req, res) => {
@@ -183,30 +216,6 @@ export async function registerRoutes(
     }
   });
 
-  // Review attendance correction (HR/Admin)
-  // app.post("/api/attendance/correction/:id/review", requireRole("HR", "SUPER_ADMIN"), async (req: Request<{ id: string }>, res: Response) => {
-  //   try {
-  //     const id = parseInt(req.params.id);
-  //     const { status } = req.body;
-  //     if (!["APPROVED", "REJECTED"].includes(status)) {
-  //       return res.status(400).json({ message: "Invalid status" });
-  //     }
-
-  //     await storage.updateCorrectionStatus(id, status, req.user!.id);
-
-  //     await storage.createAuditLog({
-  //       userId: req.user!.id,
-  //       action: `CORRECTION_${status}`,
-  //       entity: "attendance_correction",
-  //       entityId: id,
-  //       ipAddress: getClientIp(req),
-  //     });
-
-  //     res.json({ success: true });
-  //   } catch (err: any) {
-  //     res.status(500).json({ message: err.message });
-  //   }
-  // });
 
   app.post(
     "/api/attendance/correction/:id/review",
@@ -253,25 +262,6 @@ export async function registerRoutes(
     }
   );
 
-  // Leave management
-  // app.post("/api/leave", requireAuth, async (req, res) => {
-  //   try {
-  //     const parsed = leaveApplicationSchema.safeParse(req.body);
-  //     if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
-
-  //     const employee = await storage.getEmployeeByUserId(req.user!.id);
-  //     if (!employee) return res.status(400).json({ message: "Employee record not found" });
-
-  //     const record = await storage.createLeaveRequest({
-  //       employeeId: employee.id,
-  //       ...parsed.data,
-  //     });
-
-  //     res.json(record);
-  //   } catch (err: any) {
-  //     res.status(500).json({ message: err.message });
-  //   }
-  // });
 
   app.get(
     "/api/attendance/summary",

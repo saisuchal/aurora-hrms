@@ -73,12 +73,31 @@ function QuickAttendance() {
       const res = await apiRequest("POST", "/api/attendance/clock-in", coords);
       return await res.json();
     },
+    // onSuccess: () => {
+    //   toast({ title: "Clocked in successfully" });
+    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
+    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
+    //   queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/summary"] });
+    // },
     onSuccess: () => {
       toast({ title: "Clocked in successfully" });
-      queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/attendance/summary"] });
+
+      queryClient.invalidateQueries({
+        queryKey: ["attendance-summary"],
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["attendance-history"],
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["/api/attendance/today"],
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["/api/dashboard"],
+      });
     },
     onError: (error: Error) => {
       toast({ title: "Clock-in failed", description: error.message, variant: "destructive" });
@@ -91,11 +110,31 @@ function QuickAttendance() {
       const res = await apiRequest("POST", "/api/attendance/clock-out", coords);
       return await res.json();
     },
+    // onSuccess: () => {
+    //   toast({ title: "Clocked out successfully" });
+    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
+    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
+    //   queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/summary"] });
+    // },
     onSuccess: () => {
-      toast({ title: "Clocked out successfully" });
-      queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      toast({ title: "Clocked in successfully" });
+
+      queryClient.invalidateQueries({
+        queryKey: ["attendance-summary"],
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["attendance-history"],
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["/api/attendance/today"],
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: ["/api/dashboard"],
+      });
     },
     onError: (error: Error) => {
       toast({ title: "Clock-out failed", description: error.message, variant: "destructive" });

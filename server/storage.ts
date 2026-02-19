@@ -29,7 +29,7 @@ export interface IStorage {
   getTodayAttendance(employeeId: number): Promise<Attendance | undefined>;
   createAttendance(data: any): Promise<Attendance>;
   updateAttendance(id: number, data: any): Promise<Attendance | undefined>;
-  getAttendanceHistory(employeeId: number, page: number, limit: number): Promise<{ records: (Attendance & { correctionStatus: string | null })[]; total: number; }>;
+  getAttendanceHistory(employeeId: number, page: number, limit: number, month?: number, year?: number): Promise<{ records: (Attendance & { correctionStatus: string | null })[]; total: number; }>;
   getTeamAttendanceToday(managerEmployeeId: number): Promise<any[]>;
   getDaysPresent(employeeId: number, month: number, year: number): Promise<number>;
   getMonthlyAttendanceSummary(employeeId: number, month: number, year: number): Promise<{ workingDays: number; presentDays: number; absentDays: number; }>;
@@ -294,16 +294,39 @@ export class DatabaseStorage implements IStorage {
   }
 
 
-
-  // async getAttendanceHistory(employeeId: number, page: number, limit: number) {
+  // async getAttendanceHistory(
+  //   employeeId: number,
+  //   page: number,
+  //   limit: number
+  // ) {
   //   const offset = (page - 1) * limit;
-  //   const records = await db.select().from(attendance)
+
+  //   const recordsRaw = await db
+  //     .select({
+  //       attendance: attendance,
+  //       correctionStatus: attendanceCorrections.status,
+  //     })
+  //     .from(attendance)
+  //     .leftJoin(
+  //       attendanceCorrections,
+  //       and(
+  //         eq(attendance.employeeId, attendanceCorrections.employeeId),
+  //         eq(attendance.date, attendanceCorrections.date)
+  //       )
+  //     )
   //     .where(eq(attendance.employeeId, employeeId))
   //     .orderBy(desc(attendance.date))
   //     .limit(limit)
   //     .offset(offset);
 
-  //   const [{ value: total }] = await db.select({ value: count() }).from(attendance)
+  //   const records = recordsRaw.map((row) => ({
+  //     ...row.attendance,
+  //     correctionStatus: row.correctionStatus ?? null,
+  //   }));
+
+  //   const [{ value: total }] = await db
+  //     .select({ value: count() })
+  //     .from(attendance)
   //     .where(eq(attendance.employeeId, employeeId));
 
   //   return { records, total };
@@ -312,9 +335,17 @@ export class DatabaseStorage implements IStorage {
   async getAttendanceHistory(
     employeeId: number,
     page: number,
-    limit: number
+    limit: number,
+    month: number,
+    year: number
   ) {
     const offset = (page - 1) * limit;
+
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0);
+
+    const start = startDate.toISOString().split("T")[0];
+    const end = endDate.toISOString().split("T")[0];
 
     const recordsRaw = await db
       .select({
@@ -329,7 +360,13 @@ export class DatabaseStorage implements IStorage {
           eq(attendance.date, attendanceCorrections.date)
         )
       )
-      .where(eq(attendance.employeeId, employeeId))
+      .where(
+        and(
+          eq(attendance.employeeId, employeeId),
+          gte(attendance.date, start),
+          lte(attendance.date, end)
+        )
+      )
       .orderBy(desc(attendance.date))
       .limit(limit)
       .offset(offset);
@@ -342,10 +379,17 @@ export class DatabaseStorage implements IStorage {
     const [{ value: total }] = await db
       .select({ value: count() })
       .from(attendance)
-      .where(eq(attendance.employeeId, employeeId));
+      .where(
+        and(
+          eq(attendance.employeeId, employeeId),
+          gte(attendance.date, start),
+          lte(attendance.date, end)
+        )
+      );
 
-    return { records, total };
+    return { records, total: Number(total || 0) };
   }
+
 
 
 
@@ -394,6 +438,7 @@ export class DatabaseStorage implements IStorage {
     workingDays: number;
     presentDays: number;
     absentDays: number;
+    leaveDays: number;
   }> {
 
     const today = new Date();
@@ -402,22 +447,20 @@ export class DatabaseStorage implements IStorage {
 
     let endDate: Date;
 
-    // 🔥 If current month → calculate only till today
     if (
       year === today.getFullYear() &&
       month === today.getMonth() + 1
     ) {
       endDate = today;
     } else {
-      // Past month → full month
       endDate = new Date(year, month, 0);
     }
 
     const start = startDate.toISOString().split("T")[0];
     const end = endDate.toISOString().split("T")[0];
 
-    // 1️⃣ Count PRESENT days
-    const [{ value: presentDaysRaw }] = await db
+    // 🔹 Count PRESENT
+    const [{ value: presentRaw }] = await db
       .select({ value: count() })
       .from(attendance)
       .where(
@@ -429,9 +472,39 @@ export class DatabaseStorage implements IStorage {
         )
       );
 
-    const presentDays = Number(presentDaysRaw || 0);
+    const presentDays = Number(presentRaw || 0);
 
-    // 2️⃣ Calculate working days (exclude Sundays)
+    // 🔹 Count UNPAID
+    const [{ value: unpaidRaw }] = await db
+      .select({ value: count() })
+      .from(attendance)
+      .where(
+        and(
+          eq(attendance.employeeId, employeeId),
+          gte(attendance.date, start),
+          lte(attendance.date, end),
+          eq(attendance.status, "UNPAID")
+        )
+      );
+
+    const absentDays = Number(unpaidRaw || 0);
+
+    // 🔹 Count ON_LEAVE
+    const [{ value: leaveRaw }] = await db
+      .select({ value: count() })
+      .from(attendance)
+      .where(
+        and(
+          eq(attendance.employeeId, employeeId),
+          gte(attendance.date, start),
+          lte(attendance.date, end),
+          eq(attendance.status, "ON_LEAVE")
+        )
+      );
+
+    const leaveDays = Number(leaveRaw || 0);
+
+    // 🔹 Calculate working days (exclude Sundays)
     let workingDays = 0;
     const current = new Date(startDate);
 
@@ -442,19 +515,13 @@ export class DatabaseStorage implements IStorage {
       current.setDate(current.getDate() + 1);
     }
 
-    // 3️⃣ Absent = workingDays − present
-    const absentDays = Math.max(workingDays - presentDays, 0);
-
     return {
       workingDays,
       presentDays,
       absentDays,
+      leaveDays,
     };
   }
-
-
-
-
 
 
   async createAttendanceCorrection(data: any): Promise<AttendanceCorrection> {
@@ -493,13 +560,68 @@ export class DatabaseStorage implements IStorage {
     return record || undefined;
   }
 
-  async updateCorrectionStatus(id: number, status: string, reviewedBy: number): Promise<void> {
-    await db.update(attendanceCorrections).set({
-      status: status as any,
-      reviewedBy,
-      reviewedAt: new Date(),
-    }).where(eq(attendanceCorrections.id, id));
+  async updateCorrectionStatus(
+    id: number,
+    status: "APPROVED" | "REJECTED",
+    reviewedBy: number
+  ): Promise<void> {
+
+    await db.transaction(async (tx) => {
+
+      const [correction] = await tx
+        .select()
+        .from(attendanceCorrections)
+        .where(eq(attendanceCorrections.id, id))
+        .for("update");
+
+      if (!correction) {
+        throw new Error("Correction not found");
+      }
+
+      if (correction.status !== "PENDING") {
+        throw new Error("Correction already reviewed");
+      }
+
+      if (status === "APPROVED") {
+
+        const [attendanceRecord] = await tx
+          .select()
+          .from(attendance)
+          .where(
+            and(
+              eq(attendance.employeeId, correction.employeeId),
+              eq(attendance.date, correction.date)
+            )
+          )
+          .for("update");
+
+        if (!attendanceRecord) {
+          throw new Error("Attendance record not found");
+        }
+
+        await tx
+          .update(attendance)
+          .set({
+            clockIn:
+              correction.requestedClockIn ?? attendanceRecord.clockIn,
+            clockOut:
+              correction.requestedClockOut ?? attendanceRecord.clockOut,
+            status: "PRESENT", // 🔥 THIS FIXES YOUR SUMMARY
+          })
+          .where(eq(attendance.id, attendanceRecord.id));
+      }
+
+      await tx
+        .update(attendanceCorrections)
+        .set({
+          status,
+          reviewedBy,
+          reviewedAt: new Date(),
+        })
+        .where(eq(attendanceCorrections.id, id));
+    });
   }
+
 
   async createLeaveRequest(data: any): Promise<LeaveRequest> {
     const [record] = await db.insert(leaveRequests).values(data).returning();
@@ -584,7 +706,9 @@ export class DatabaseStorage implements IStorage {
     status: string,
     reviewedBy: number
   ): Promise<void> {
+
     await db.transaction(async (tx) => {
+
       const [leave] = await tx
         .select()
         .from(leaveRequests)
@@ -600,6 +724,7 @@ export class DatabaseStorage implements IStorage {
       }
 
       if (status === "APPROVED") {
+
         const [employee] = await tx
           .select()
           .from(employees)
@@ -612,13 +737,13 @@ export class DatabaseStorage implements IStorage {
 
         const days = leave.days;
 
+        // 🔹 Deduct leave balance
         if (leave.leaveType === "CASUAL") {
           if ((employee.casualLeaveBalance || 0) < days) {
             throw new Error("Insufficient casual leave balance");
           }
 
-          await tx
-            .update(employees)
+          await tx.update(employees)
             .set({
               casualLeaveBalance:
                 sql`${employees.casualLeaveBalance} - ${days}`,
@@ -631,8 +756,7 @@ export class DatabaseStorage implements IStorage {
             throw new Error("Insufficient medical leave balance");
           }
 
-          await tx
-            .update(employees)
+          await tx.update(employees)
             .set({
               medicalLeaveBalance:
                 sql`${employees.medicalLeaveBalance} - ${days}`,
@@ -645,18 +769,64 @@ export class DatabaseStorage implements IStorage {
             throw new Error("Insufficient earned leave balance");
           }
 
-          await tx
-            .update(employees)
+          await tx.update(employees)
             .set({
               earnedLeaveBalance:
                 sql`${employees.earnedLeaveBalance} - ${days}`,
             })
             .where(eq(employees.id, employee.id));
         }
+
+        // 🔹 Mark attendance as ON_LEAVE
+        const start = new Date(leave.startDate);
+        const end = new Date(leave.endDate);
+
+        for (
+          let d = new Date(start);
+          d <= end;
+          d.setDate(d.getDate() + 1)
+        ) {
+          const dateStr = d.toISOString().split("T")[0];
+          const isSunday = d.getDay() === 0;
+
+          if (isSunday) {
+            continue; // keep Sunday as HOLIDAY
+          }
+
+          // Check if attendance record exists
+          const existing = await tx
+            .select()
+            .from(attendance)
+            .where(
+              and(
+                eq(attendance.employeeId, employee.id),
+                eq(attendance.date, dateStr)
+              )
+            )
+            .limit(1);
+
+          if (existing.length === 0) {
+            // Insert new ON_LEAVE record
+            await tx.insert(attendance).values({
+              employeeId: employee.id,
+              date: dateStr,
+              status: "ON_LEAVE",
+            });
+          } else {
+            const record = existing[0];
+
+            // Do NOT override PRESENT
+            if (record.status !== "PRESENT") {
+              await tx.update(attendance)
+                .set({ status: "ON_LEAVE" })
+                .where(eq(attendance.id, record.id));
+            }
+          }
+        }
       }
 
-      await tx
-        .update(leaveRequests)
+      // 🔹 Finally update leave request status
+      await tx.update(leaveRequests)
         .set({
           status: status as any,
           reviewedBy,
@@ -665,6 +835,7 @@ export class DatabaseStorage implements IStorage {
         .where(eq(leaveRequests.id, leaveId));
     });
   }
+
 
   async hasOverlappingLeave(
     employeeId: number,

@@ -50,6 +50,7 @@ export const attendanceStatusEnum = pgEnum("attendance_status", [
   "PRESENT",
   "UNPAID",
   "HOLIDAY",
+  "ON_LEAVE",
 ]);
 
 
