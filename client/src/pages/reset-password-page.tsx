@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Loader2, ShieldAlert, Lock } from "lucide-react";
+import { Loader2, ShieldAlert, Lock, Eye, EyeOff } from "lucide-react";
 
 const resetSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required"),
@@ -19,6 +20,10 @@ const resetSchema = z.object({
 
 export default function ResetPasswordPage() {
   const { resetPasswordMutation } = useAuth();
+
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const form = useForm({
     resolver: zodResolver(resetSchema),
@@ -39,7 +44,9 @@ export default function ResetPasswordPage() {
           <div className="p-3 rounded-md bg-destructive/10 mb-4">
             <ShieldAlert className="h-8 w-8 text-destructive" />
           </div>
-          <h1 className="text-2xl font-bold" data-testid="text-reset-title">Password Reset Required</h1>
+          <h1 className="text-2xl font-bold" data-testid="text-reset-title">
+            Password Reset Required
+          </h1>
           <p className="text-muted-foreground text-center mt-1">
             You must change your temporary password before accessing the system.
           </p>
@@ -58,6 +65,8 @@ export default function ResetPasswordPage() {
           <CardContent>
             <Form {...form}>
               <form onSubmit={onSubmit} className="space-y-4">
+
+                {/* Temporary Password */}
                 <FormField
                   control={form.control}
                   name="currentPassword"
@@ -65,17 +74,32 @@ export default function ResetPasswordPage() {
                     <FormItem>
                       <FormLabel>Temporary Password</FormLabel>
                       <FormControl>
-                        <Input
-                          data-testid="input-current-password"
-                          type="password"
-                          placeholder="Enter the temporary password from your email"
-                          {...field}
-                        />
+                        <div className="relative">
+                          <Input
+                            data-testid="input-current-password"
+                            type={showCurrent ? "text" : "password"}
+                            placeholder="Enter the temporary password from your email"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowCurrent(!showCurrent)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                          >
+                            {showCurrent ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
+                {/* New Password */}
                 <FormField
                   control={form.control}
                   name="newPassword"
@@ -83,17 +107,32 @@ export default function ResetPasswordPage() {
                     <FormItem>
                       <FormLabel>New Password</FormLabel>
                       <FormControl>
-                        <Input
-                          data-testid="input-new-password"
-                          type="password"
-                          placeholder="Choose a new password (min 6 characters)"
-                          {...field}
-                        />
+                        <div className="relative">
+                          <Input
+                            data-testid="input-new-password"
+                            type={showNew ? "text" : "password"}
+                            placeholder="Choose a new password (min 6 characters)"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNew(!showNew)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                          >
+                            {showNew ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
+                {/* Confirm Password */}
                 <FormField
                   control={form.control}
                   name="confirmPassword"
@@ -101,26 +140,43 @@ export default function ResetPasswordPage() {
                     <FormItem>
                       <FormLabel>Confirm New Password</FormLabel>
                       <FormControl>
-                        <Input
-                          data-testid="input-confirm-password"
-                          type="password"
-                          placeholder="Confirm your new password"
-                          {...field}
-                        />
+                        <div className="relative">
+                          <Input
+                            data-testid="input-confirm-password"
+                            type={showConfirm ? "text" : "password"}
+                            placeholder="Confirm your new password"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirm(!showConfirm)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                          >
+                            {showConfirm ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
                 <Button
                   data-testid="button-reset-password"
                   type="submit"
                   className="w-full"
                   disabled={resetPasswordMutation.isPending}
                 >
-                  {resetPasswordMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {resetPasswordMutation.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
                   Update Password
                 </Button>
+
               </form>
             </Form>
           </CardContent>
