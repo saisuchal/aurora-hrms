@@ -146,19 +146,6 @@ export async function registerRoutes(
   });
 
   // Attendance history
-  // app.get("/api/attendance/history", requireAuth, async (req, res) => {
-  //   try {
-  //     const employee = await storage.getEmployeeByUserId(req.user!.id);
-  //     if (!employee) return res.json({ records: [], total: 0, totalPages: 0 });
-
-  //     const page = parseInt(req.query.page as string) || 1;
-  //     const limit = 10;
-  //     const { records, total } = await storage.getAttendanceHistory(employee.id, page, limit);
-  //     res.json({ records, total, totalPages: Math.ceil(total / limit) });
-  //   } catch (err: any) {
-  //     res.status(500).json({ message: err.message });
-  //   }
-  // });
 
   app.get("/api/attendance/history", requireAuth, async (req, res) => {
     try {
@@ -410,30 +397,6 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
-
-  // app.post("/api/leave/:id/review", requireRole("HR", "SUPER_ADMIN", "MANAGER"), async (req: Request<{ id: string }>, res: Response) => {
-  //   try {
-  //     const id = parseInt(req.params.id);
-  //     const { status } = req.body;
-  //     if (!["APPROVED", "REJECTED"].includes(status)) {
-  //       return res.status(400).json({ message: "Invalid status" });
-  //     }
-
-  //     await storage.updateLeaveStatus(id, status, req.user!.id);
-
-  //     await storage.createAuditLog({
-  //       userId: req.user!.id,
-  //       action: `LEAVE_${status}`,
-  //       entity: "leave_request",
-  //       entityId: id,
-  //       ipAddress: getClientIp(req),
-  //     });
-
-  //     res.json({ success: true });
-  //   } catch (err: any) {
-  //     res.status(500).json({ message: err.message });
-  //   }
-  // });
 
   // Team endpoints
 
@@ -792,17 +755,6 @@ export async function registerRoutes(
 
 
   // Admin endpoints
-  // app.get("/api/admin/leaves", requireRole("HR", "SUPER_ADMIN"), async (req, res) => {
-  //   try {
-  //     const status = (req.query.status as string) || "PENDING";
-  //     const page = parseInt(req.query.page as string) || 1;
-  //     const limit = 10;
-  //     const { records, total } = await storage.getAllLeaves(status, page, limit);
-  //     res.json({ records, total, totalPages: Math.ceil(total / limit) });
-  //   } catch (err: any) {
-  //     res.status(500).json({ message: err.message });
-  //   }
-  // });
 
   app.get(
     "/api/leaves",

@@ -293,45 +293,6 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
-
-  // async getAttendanceHistory(
-  //   employeeId: number,
-  //   page: number,
-  //   limit: number
-  // ) {
-  //   const offset = (page - 1) * limit;
-
-  //   const recordsRaw = await db
-  //     .select({
-  //       attendance: attendance,
-  //       correctionStatus: attendanceCorrections.status,
-  //     })
-  //     .from(attendance)
-  //     .leftJoin(
-  //       attendanceCorrections,
-  //       and(
-  //         eq(attendance.employeeId, attendanceCorrections.employeeId),
-  //         eq(attendance.date, attendanceCorrections.date)
-  //       )
-  //     )
-  //     .where(eq(attendance.employeeId, employeeId))
-  //     .orderBy(desc(attendance.date))
-  //     .limit(limit)
-  //     .offset(offset);
-
-  //   const records = recordsRaw.map((row) => ({
-  //     ...row.attendance,
-  //     correctionStatus: row.correctionStatus ?? null,
-  //   }));
-
-  //   const [{ value: total }] = await db
-  //     .select({ value: count() })
-  //     .from(attendance)
-  //     .where(eq(attendance.employeeId, employeeId));
-
-  //   return { records, total };
-  // }
-
   async getAttendanceHistory(
     employeeId: number,
     page: number,

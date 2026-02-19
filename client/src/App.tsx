@@ -73,13 +73,7 @@ function QuickAttendance() {
       const res = await apiRequest("POST", "/api/attendance/clock-in", coords);
       return await res.json();
     },
-    // onSuccess: () => {
-    //   toast({ title: "Clocked in successfully" });
-    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
-    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
-    //   queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/summary"] });
-    // },
+
     onSuccess: () => {
       toast({ title: "Clocked in successfully" });
 
@@ -110,13 +104,7 @@ function QuickAttendance() {
       const res = await apiRequest("POST", "/api/attendance/clock-out", coords);
       return await res.json();
     },
-    // onSuccess: () => {
-    //   toast({ title: "Clocked out successfully" });
-    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
-    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
-    //   queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
-    //   queryClient.invalidateQueries({ queryKey: ["/api/attendance/summary"] });
-    // },
+   
     onSuccess: () => {
       toast({ title: "Clocked in successfully" });
 

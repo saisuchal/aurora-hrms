@@ -68,22 +68,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  // const logoutMutation = useMutation({
-  //   mutationFn: async () => {
-  //     await apiRequest("POST", "/api/logout");
-  //   },
-  //   onSuccess: () => {
-  //     queryClient.setQueryData(["/api/user"], null);
-  //   },
-  //   onError: (error: Error) => {
-  //     toast({
-  //       title: "Logout failed",
-  //       description: error.message,
-  //       variant: "destructive",
-  //     });
-  //   },
-  // });
-
   const logoutMutation = useMutation({
   mutationFn: async () => {
     await apiRequest("POST", "/api/logout");
