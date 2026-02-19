@@ -110,6 +110,7 @@ app.use((req, res, next) => {
   async function runReconciliation() {
     console.log("Running reconciliation...");
 
+    //await storage.backfillAttendance();
     await storage.processMonthlyLeaveAccrual();
     await storage.markPastIncompleteAsUnpaid();
 

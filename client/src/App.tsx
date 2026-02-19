@@ -78,6 +78,7 @@ function QuickAttendance() {
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/today"] });
       queryClient.invalidateQueries({ queryKey: ["/api/attendance/history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/attendance/summary"] });
     },
     onError: (error: Error) => {
       toast({ title: "Clock-in failed", description: error.message, variant: "destructive" });

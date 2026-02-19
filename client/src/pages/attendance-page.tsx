@@ -107,10 +107,20 @@ export default function AttendancePage() {
   ========================= */
 
   const { data: historyData, isLoading: historyLoading } =
-    useQuery<any>({
-      queryKey: ["/api/attendance/history", user?.id, page],
-      enabled: !!user,
-    });
+  useQuery<any>({
+    queryKey: ["/api/attendance/history", user?.id, page],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/attendance/history?page=${page}`
+      );
+      return res.json();
+    },
+    enabled: !!user,
+    placeholderData: (previousData: any) => previousData,
+  });
+
+
 
   /* =========================
      CORRECTION FORM

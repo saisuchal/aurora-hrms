@@ -76,6 +76,59 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+
+  async backfillAttendance(): Promise<void> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const activeEmployees = await db
+      .select()
+      .from(employees)
+      .where(eq(employees.isActive, true));
+
+    for (const emp of activeEmployees) {
+      if (!emp.dateOfJoining) continue;
+
+      const startDate = new Date(emp.dateOfJoining);
+      startDate.setHours(0, 0, 0, 0);
+
+      for (
+        let d = new Date(startDate);
+        d <= yesterday;
+        d.setDate(d.getDate() + 1)
+      ) {
+        const dateStr = d.toISOString().split("T")[0];
+
+        // Check if attendance already exists
+        const existing = await db
+          .select()
+          .from(attendance)
+          .where(
+            and(
+              eq(attendance.employeeId, emp.id),
+              eq(attendance.date, dateStr)
+            )
+          )
+          .limit(1);
+
+        if (existing.length > 0) continue;
+
+        const isSunday = d.getDay() === 0;
+
+        await db.insert(attendance).values({
+          employeeId: emp.id,
+          date: dateStr,
+          status: isSunday ? "HOLIDAY" : "UNPAID",
+          clockIn: null,
+          clockOut: null,
+        });
+      }
+    }
+  }
+
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
@@ -759,28 +812,70 @@ export class DatabaseStorage implements IStorage {
 
   async markPastIncompleteAsUnpaid(): Promise<void> {
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    const todayDateOnly =
-      today.getFullYear() +
-      "-" +
-      String(today.getMonth() + 1).padStart(2, "0") +
-      "-" +
-      String(today.getDate()).padStart(2, "0");
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
-    await db
-      .update(attendance)
-      .set({ status: "UNPAID" })
+    const yesterdayStr =
+      yesterday.getFullYear() +
+      "-" +
+      String(yesterday.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(yesterday.getDate()).padStart(2, "0");
+
+    const isSunday = yesterday.getDay() === 0;
+
+    const activeEmployees = await db
+      .select({ id: employees.id })
+      .from(employees)
       .where(
         and(
-          lt(attendance.date, todayDateOnly),
-          or(
-            sql`${attendance.clockIn} IS NULL`,
-            sql`${attendance.clockOut} IS NULL`
-          ),
-          sql`${attendance.status} != 'UNPAID'`
+          eq(employees.isActive, true),
+          lte(employees.dateOfJoining, yesterdayStr)
         )
       );
+
+    for (const emp of activeEmployees) {
+      const existing = await db
+        .select()
+        .from(attendance)
+        .where(
+          and(
+            eq(attendance.employeeId, emp.id),
+            eq(attendance.date, yesterdayStr)
+          )
+        )
+        .limit(1);
+
+      // 1️⃣ No record → insert
+      if (existing.length === 0) {
+        await db.insert(attendance).values({
+          employeeId: emp.id,
+          date: yesterdayStr,
+          status: isSunday ? "HOLIDAY" : "UNPAID",
+        });
+        continue;
+      }
+
+      const record = existing[0];
+
+      // 2️⃣ If Sunday and record exists → leave as-is
+      if (isSunday) {
+        continue;
+      }
+
+      // 3️⃣ Incomplete → mark UNPAID
+      if (!record.clockIn || !record.clockOut) {
+        await db
+          .update(attendance)
+          .set({ status: "UNPAID" })
+          .where(eq(attendance.id, record.id));
+      }
+    }
   }
+
+
 
 
 

@@ -46,6 +46,13 @@ export const leaveTypeEnum = pgEnum("leave_type", [
   "UNPAID",
 ]);
 
+export const attendanceStatusEnum = pgEnum("attendance_status", [
+  "PRESENT",
+  "UNPAID",
+  "HOLIDAY",
+]);
+
+
 /* =========================
    USERS
 ========================= */
@@ -132,7 +139,10 @@ export const attendance = pgTable(
     clockOutLat: real("clock_out_lat"),
     clockOutLng: real("clock_out_lng"),
     ipAddress: varchar("ip_address", { length: 45 }),
-    status: text("status").notNull().default("PRESENT"),
+    status: attendanceStatusEnum("status")
+      .notNull()
+      .default("PRESENT"),
+
   },
   (table) => [
     uniqueIndex("attendance_employee_date_unique")
@@ -258,6 +268,17 @@ export const officeSettings = pgTable("office_settings", {
   longitude: real("longitude").notNull(),
   allowedRadiusMeters: real("allowed_radius_meters").notNull().default(200),
 });
+
+/* =========================
+   SESSION STORE
+========================= */
+
+// export const sessions = pgTable("sessions", {
+//   sid: varchar("sid").primaryKey(),
+//   sess: text("sess").notNull(),
+//   expire: timestamp("expire").notNull(),
+// });
+
 
 /* =========================
    ZOD VALIDATION

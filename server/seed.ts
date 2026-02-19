@@ -51,7 +51,7 @@ export async function seedDatabase() {
     department: "Administration",
     designation: "System Administrator",
     monthlySalary: 15000,
-    dateOfJoining: "2024-01-01",
+    dateOfJoining: "2026-02-01",
   });
   await storage.linkEmployeeToUser(adminEmp.id, admin.id);
 
@@ -63,7 +63,7 @@ export async function seedDatabase() {
     department: "Human Resources",
     designation: "HR Manager",
     monthlySalary: 8000,
-    dateOfJoining: "2024-02-15",
+    dateOfJoining: "2026-02-01",
   });
   await storage.linkEmployeeToUser(hrEmp.id, hrUser.id);
 
@@ -75,7 +75,7 @@ export async function seedDatabase() {
     department: "Engineering",
     designation: "Engineering Manager",
     monthlySalary: 12000,
-    dateOfJoining: "2024-03-01",
+    dateOfJoining: "2026-02-01",
   });
   await storage.linkEmployeeToUser(managerEmp.id, managerUser.id);
 
@@ -88,32 +88,10 @@ export async function seedDatabase() {
     designation: "Software Developer",
     managerId: managerEmp.id,
     monthlySalary: 7000,
-    dateOfJoining: "2024-04-10",
+    dateOfJoining: "2026-02-01",
   });
   await storage.linkEmployeeToUser(aliceEmp.id, empUser.id);
 
-  await storage.createEmployee({
-    firstName: "Bob",
-    lastName: "Davis",
-    email: "bob@company.com",
-    phone: "+1234567894",
-    department: "Engineering",
-    designation: "Frontend Developer",
-    managerId: managerEmp.id,
-    monthlySalary: 6500,
-    dateOfJoining: "2024-05-01",
-  });
-
-  await storage.createEmployee({
-    firstName: "Carol",
-    lastName: "Martinez",
-    email: "carol@company.com",
-    phone: "+1234567895",
-    department: "Marketing",
-    designation: "Marketing Specialist",
-    monthlySalary: 5500,
-    dateOfJoining: "2024-06-15",
-  });
 
   await storage.upsertOfficeSettings({
     officeName: "Main Office",
