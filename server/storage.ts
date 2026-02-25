@@ -7,7 +7,7 @@ import {
   type AuditLog, type OfficeSetting,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, count, ilike, or, gte, lte, lt } from "drizzle-orm";
+import { eq, and, desc, sql, count, ilike, or, gte, lte, lt, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
 
@@ -33,11 +33,13 @@ export interface IStorage {
   getTeamAttendanceToday(managerEmployeeId: number): Promise<any[]>;
   getDaysPresent(employeeId: number, month: number, year: number): Promise<number>;
   getMonthlyAttendanceSummary(employeeId: number, month: number, year: number): Promise<{ workingDays: number; presentDays: number; absentDays: number; }>;
+  calculateAttendanceStatus(params: { date: string; clockIn: Date | null; clockOut: Date | null }): "PRESENT" | "UNPAID" | "HOLIDAY";
 
   createAttendanceCorrection(data: any): Promise<AttendanceCorrection>;
   getCorrections(page: number, limit: number): Promise<{ records: any[]; total: number }>;
   updateCorrectionStatus(id: number, status: string, reviewedBy: number): Promise<void>;
   getCorrectionById(id: number): Promise<AttendanceCorrection | undefined>;
+  createAttendanceCorrectionWithValidation(employeeId: number, data: { date: string; reason: string; requestedClockIn?: string | null; requestedClockOut?: string | null }): Promise<void>;
   updateAttendanceByEmployeeAndDate(employeeId: number, date: string, data: { clockIn?: Date | null; clockOut?: Date | null }): Promise<void>;
 
 
@@ -52,6 +54,9 @@ export interface IStorage {
   reviewLeaveWithTransaction(leaveId: number, status: string, reviewedBy: number): Promise<void>;
   hasOverlappingLeave(employeeId: number, startDate: string, endDate: string): Promise<boolean>;
   getLeavesByManager(managerId: number, status: LeaveRequest["status"], page: number, limit: number): Promise<{ records: any[]; total: number }>;
+  getApprovedLeaveForDate(employeeId: number, date: string): Promise<LeaveRequest | undefined>;
+  cancelLeaveRequest(leaveId: number, employeeId: number, cancelledBy: number): Promise<void>;
+  requestLeaveRevoke(leaveId: number, employeeId: number, requestedBy: number): Promise<void>;
 
 
   createPayrollRecord(data: any): Promise<PayrollRecord>;
@@ -116,12 +121,16 @@ export class DatabaseStorage implements IStorage {
 
         if (existing.length > 0) continue;
 
-        const isSunday = d.getDay() === 0;
+        const status = this.calculateAttendanceStatus({
+          date: dateStr,
+          clockIn: null,
+          clockOut: null,
+        });
 
         await db.insert(attendance).values({
           employeeId: emp.id,
           date: dateStr,
-          status: isSunday ? "HOLIDAY" : "UNPAID",
+          status,
           clockIn: null,
           clockOut: null,
         });
@@ -265,13 +274,128 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAttendance(data: any): Promise<Attendance> {
-    const [record] = await db.insert(attendance).values(data).returning();
+    const [record] = await db
+      .insert(attendance)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [attendance.employeeId, attendance.date],
+        set: {
+          clockIn: data.clockIn,
+          clockInLat: data.clockInLat,
+          clockInLng: data.clockInLng,
+          ipAddress: data.ipAddress,
+          status: data.status,
+        },
+      })
+      .returning();
+
     return record;
   }
 
-  async updateAttendance(id: number, data: any): Promise<Attendance | undefined> {
-    const [record] = await db.update(attendance).set(data).where(eq(attendance.id, id)).returning();
-    return record || undefined;
+  async updateAttendance(id: number, data: any): Promise<Attendance> {
+    const [record] = await db
+      .update(attendance)
+      .set(data)
+      .where(eq(attendance.id, id))
+      .returning();
+
+    return record;
+  }
+
+  async createAttendanceCorrectionWithValidation(
+    employeeId: number,
+    data: {
+      date: string;
+      reason: string;
+      requestedClockIn?: string | null;
+      requestedClockOut?: string | null;
+    }
+  ): Promise<void> {
+
+    await db.transaction(async (tx) => {
+
+      /* 1️⃣ Lock attendance row */
+      const [attendanceRecord] = await tx
+        .select()
+        .from(attendance)
+        .where(
+          and(
+            eq(attendance.employeeId, employeeId),
+            eq(attendance.date, data.date)
+          )
+        )
+        .for("update");
+
+      if (!attendanceRecord) {
+        throw new Error("Attendance record not found");
+      }
+
+      /* 2️⃣ Block leave days */
+      if (attendanceRecord.status === "ON_LEAVE") {
+        throw new Error("Cannot apply correction on leave day");
+      }
+
+      /* 3️⃣ Must be fully clocked */
+      // if (!attendanceRecord.clockIn || !attendanceRecord.clockOut) {
+      //   throw new Error("Only fully completed days can be corrected");
+      // }
+
+      /* 4️⃣ Leave conflict check */
+      const leaveConflict = await tx
+        .select()
+        .from(leaveRequests)
+        .where(
+          and(
+            eq(leaveRequests.employeeId, employeeId),
+            lte(leaveRequests.startDate, data.date),
+            gte(leaveRequests.endDate, data.date),
+            inArray(leaveRequests.status, [
+              "PENDING",
+              "APPROVED",
+              "REVOKE_PENDING",
+            ])
+          )
+        )
+        .limit(1);
+
+      if (leaveConflict.length > 0) {
+        throw new Error(
+          "Cannot apply correction while leave is pending or approved"
+        );
+      }
+
+      /* 5️⃣ Prevent duplicate pending correction */
+      const existingPending = await tx
+        .select()
+        .from(attendanceCorrections)
+        .where(
+          and(
+            eq(attendanceCorrections.employeeId, employeeId),
+            eq(attendanceCorrections.date, data.date),
+            eq(attendanceCorrections.status, "PENDING")
+          )
+        )
+        .limit(1);
+
+      if (existingPending.length > 0) {
+        throw new Error("Correction already pending for this date");
+      }
+
+      /* 6️⃣ Insert correction */
+      await tx.insert(attendanceCorrections).values({
+        employeeId,
+        date: data.date,
+        reason: data.reason,
+        requestedClockIn: data.requestedClockIn
+          ? new Date(data.requestedClockIn)
+          : null,
+        requestedClockOut: data.requestedClockOut
+          ? new Date(data.requestedClockOut)
+          : null,
+        status: "PENDING",
+        createdAt: new Date(),
+      });
+    });
   }
 
   async updateAttendanceByEmployeeAndDate(
@@ -484,6 +608,73 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  calculateAttendanceStatus(params: {
+    date: string;
+    clockIn: Date | null;
+    clockOut: Date | null;
+  }): "PRESENT" | "UNPAID" | "HOLIDAY" {
+
+    const dateObj = new Date(params.date);
+    const isSunday = dateObj.getDay() === 0;
+
+    if (isSunday) {
+      return "HOLIDAY";
+    }
+
+    if (params.clockIn && params.clockOut) {
+      return "PRESENT";
+    }
+
+    return "UNPAID";
+  }
+
+  private async assertNoWorkflowConflict(
+    tx: any,
+    employeeId: number,
+    date: string
+  ) {
+    const activeLeave = await tx
+      .select()
+      .from(leaveRequests)
+      .where(
+        and(
+          eq(leaveRequests.employeeId, employeeId),
+          lte(leaveRequests.startDate, date),
+          gte(leaveRequests.endDate, date),
+          inArray(leaveRequests.status, [
+            "PENDING",
+            "APPROVED",
+            "REVOKE_PENDING",
+          ])
+        )
+      )
+      .limit(1);
+
+    if (activeLeave.length > 0) {
+      throw new Error(
+        "Leave workflow active for this date. Resolve it first."
+      );
+    }
+
+    const activeCorrection = await tx
+      .select()
+      .from(attendanceCorrections)
+      .where(
+        and(
+          eq(attendanceCorrections.employeeId, employeeId),
+          eq(attendanceCorrections.date, date),
+          eq(attendanceCorrections.status, "PENDING")
+        )
+      )
+      .limit(1);
+
+    if (activeCorrection.length > 0) {
+      throw new Error(
+        "Correction workflow active for this date. Resolve it first."
+      );
+    }
+  }
+
 
   async createAttendanceCorrection(data: any): Promise<AttendanceCorrection> {
     const [record] = await db.insert(attendanceCorrections).values(data).returning();
@@ -560,17 +751,45 @@ export class DatabaseStorage implements IStorage {
           throw new Error("Attendance record not found");
         }
 
+        /* =====================================================
+           🚫 BLOCK CORRECTION IF ON_LEAVE
+        ===================================================== */
+
+        if (attendanceRecord.status === "ON_LEAVE") {
+          throw new Error(
+            "Attendance is marked ON_LEAVE. Please revoke leave before applying correction."
+          );
+        }
+
+        /* =====================================================
+           🔄 APPLY CORRECTION SAFELY
+        ===================================================== */
+
+        const newClockIn =
+          correction.requestedClockIn ?? attendanceRecord.clockIn;
+
+        const newClockOut =
+          correction.requestedClockOut ?? attendanceRecord.clockOut;
+
+        const newStatus = this.calculateAttendanceStatus({
+          date: attendanceRecord.date,
+          clockIn: newClockIn,
+          clockOut: newClockOut,
+        });
+
         await tx
           .update(attendance)
           .set({
-            clockIn:
-              correction.requestedClockIn ?? attendanceRecord.clockIn,
-            clockOut:
-              correction.requestedClockOut ?? attendanceRecord.clockOut,
-            status: "PRESENT", // 🔥 THIS FIXES YOUR SUMMARY
+            clockIn: newClockIn,
+            clockOut: newClockOut,
+            status: newStatus,
           })
           .where(eq(attendance.id, attendanceRecord.id));
       }
+
+      /* =====================================================
+         🔄 UPDATE CORRECTION STATUS
+      ===================================================== */
 
       await tx
         .update(attendanceCorrections)
@@ -664,7 +883,7 @@ export class DatabaseStorage implements IStorage {
 
   async reviewLeaveWithTransaction(
     leaveId: number,
-    status: string,
+    managerAction: "APPROVED" | "REJECTED",
     reviewedBy: number
   ): Promise<void> {
 
@@ -680,11 +899,11 @@ export class DatabaseStorage implements IStorage {
         throw new Error("Leave request not found");
       }
 
-      if (leave.status === "APPROVED") {
-        throw new Error("Leave already approved");
-      }
+      /* =========================================================
+         🔵 CASE 1: REVOKE FLOW
+      ========================================================== */
 
-      if (status === "APPROVED") {
+      if (leave.status === "REVOKE_PENDING") {
 
         const [employee] = await tx
           .select()
@@ -696,104 +915,219 @@ export class DatabaseStorage implements IStorage {
           throw new Error("Employee not found");
         }
 
-        const days = leave.days;
+        if (managerAction === "APPROVED") {
+          // ✅ Approve revoke → Cancel leave
 
-        // 🔹 Deduct leave balance
-        if (leave.leaveType === "CASUAL") {
-          if ((employee.casualLeaveBalance || 0) < days) {
-            throw new Error("Insufficient casual leave balance");
+          const days = leave.days;
+
+          // 🔹 Credit leave balance back
+          if (leave.leaveType === "CASUAL") {
+            await tx.update(employees)
+              .set({
+                casualLeaveBalance:
+                  sql`${employees.casualLeaveBalance} + ${days}`,
+              })
+              .where(eq(employees.id, employee.id));
           }
 
-          await tx.update(employees)
-            .set({
-              casualLeaveBalance:
-                sql`${employees.casualLeaveBalance} - ${days}`,
-            })
-            .where(eq(employees.id, employee.id));
-        }
-
-        if (leave.leaveType === "MEDICAL") {
-          if ((employee.medicalLeaveBalance || 0) < days) {
-            throw new Error("Insufficient medical leave balance");
+          if (leave.leaveType === "MEDICAL") {
+            await tx.update(employees)
+              .set({
+                medicalLeaveBalance:
+                  sql`${employees.medicalLeaveBalance} + ${days}`,
+              })
+              .where(eq(employees.id, employee.id));
           }
 
-          await tx.update(employees)
-            .set({
-              medicalLeaveBalance:
-                sql`${employees.medicalLeaveBalance} - ${days}`,
-            })
-            .where(eq(employees.id, employee.id));
-        }
-
-        if (leave.leaveType === "EARNED") {
-          if ((employee.earnedLeaveBalance || 0) < days) {
-            throw new Error("Insufficient earned leave balance");
+          if (leave.leaveType === "EARNED") {
+            await tx.update(employees)
+              .set({
+                earnedLeaveBalance:
+                  sql`${employees.earnedLeaveBalance} + ${days}`,
+              })
+              .where(eq(employees.id, employee.id));
           }
 
-          await tx.update(employees)
-            .set({
-              earnedLeaveBalance:
-                sql`${employees.earnedLeaveBalance} - ${days}`,
-            })
-            .where(eq(employees.id, employee.id));
-        }
+          // 🔹 Update attendance to PRESENT
+          const start = new Date(leave.startDate);
+          const end = new Date(leave.endDate);
 
-        // 🔹 Mark attendance as ON_LEAVE
-        const start = new Date(leave.startDate);
-        const end = new Date(leave.endDate);
+          for (
+            let d = new Date(start);
+            d <= end;
+            d.setDate(d.getDate() + 1)
+          ) {
+            const dateStr = d.toISOString().split("T")[0];
+            const isSunday = d.getDay() === 0;
+            if (isSunday) continue;
 
-        for (
-          let d = new Date(start);
-          d <= end;
-          d.setDate(d.getDate() + 1)
-        ) {
-          const dateStr = d.toISOString().split("T")[0];
-          const isSunday = d.getDay() === 0;
-
-          if (isSunday) {
-            continue; // keep Sunday as HOLIDAY
-          }
-
-          // Check if attendance record exists
-          const existing = await tx
-            .select()
-            .from(attendance)
-            .where(
-              and(
-                eq(attendance.employeeId, employee.id),
-                eq(attendance.date, dateStr)
+            const existing = await tx
+              .select()
+              .from(attendance)
+              .where(
+                and(
+                  eq(attendance.employeeId, employee.id),
+                  eq(attendance.date, dateStr)
+                )
               )
-            )
-            .limit(1);
+              .limit(1);
 
-          if (existing.length === 0) {
-            // Insert new ON_LEAVE record
-            await tx.insert(attendance).values({
-              employeeId: employee.id,
-              date: dateStr,
-              status: "ON_LEAVE",
-            });
-          } else {
-            const record = existing[0];
+            if (existing.length > 0) {
+              const record = existing[0];
 
-            // Do NOT override PRESENT
-            if (record.status !== "PRESENT") {
+              const newStatus = this.calculateAttendanceStatus({
+                date: dateStr,
+                clockIn: record.clockIn,
+                clockOut: record.clockOut,
+              });
+
               await tx.update(attendance)
-                .set({ status: "ON_LEAVE" })
+                .set({ status: newStatus })
                 .where(eq(attendance.id, record.id));
             }
           }
+
+          // 🔹 Final leave state
+          await tx.update(leaveRequests)
+            .set({
+              status: "REVOKED",
+              reviewedBy,
+              reviewedAt: new Date(),
+            })
+            .where(eq(leaveRequests.id, leaveId));
+
+        } else {
+          // ❌ Reject revoke → Leave remains approved
+
+          await tx.update(leaveRequests)
+            .set({
+              status: "APPROVED",
+              reviewedBy,
+              reviewedAt: new Date(),
+            })
+            .where(eq(leaveRequests.id, leaveId));
+        }
+
+        return;
+      }
+
+      /* =========================================================
+         🔵 CASE 2: NORMAL LEAVE REVIEW
+      ========================================================== */
+
+      if (leave.status !== "PENDING") {
+        throw new Error("Leave already reviewed");
+      }
+
+      if (managerAction === "REJECTED") {
+
+        await tx.update(leaveRequests)
+          .set({
+            status: "REJECTED",
+            reviewedBy,
+            reviewedAt: new Date(),
+          })
+          .where(eq(leaveRequests.id, leaveId));
+
+        return;
+      }
+
+      // ✅ APPROVE NORMAL LEAVE
+
+      const [employee] = await tx
+        .select()
+        .from(employees)
+        .where(eq(employees.id, leave.employeeId))
+        .for("update");
+
+      if (!employee) {
+        throw new Error("Employee not found");
+      }
+
+      const days = leave.days;
+
+      // 🔹 Deduct leave balance
+      if (leave.leaveType === "CASUAL") {
+        if (employee.casualLeaveBalance < days)
+          throw new Error("Insufficient casual leave balance");
+
+        await tx.update(employees)
+          .set({
+            casualLeaveBalance:
+              sql`${employees.casualLeaveBalance} - ${days}`,
+          })
+          .where(eq(employees.id, employee.id));
+      }
+
+      if (leave.leaveType === "MEDICAL") {
+        if (employee.medicalLeaveBalance < days)
+          throw new Error("Insufficient medical leave balance");
+
+        await tx.update(employees)
+          .set({
+            medicalLeaveBalance:
+              sql`${employees.medicalLeaveBalance} - ${days}`,
+          })
+          .where(eq(employees.id, employee.id));
+      }
+
+      if (leave.leaveType === "EARNED") {
+        if (employee.earnedLeaveBalance < days)
+          throw new Error("Insufficient earned leave balance");
+
+        await tx.update(employees)
+          .set({
+            earnedLeaveBalance:
+              sql`${employees.earnedLeaveBalance} - ${days}`,
+          })
+          .where(eq(employees.id, employee.id));
+      }
+
+      // 🔹 Mark attendance as ON_LEAVE
+      const start = new Date(leave.startDate);
+      const end = new Date(leave.endDate);
+
+      for (
+        let d = new Date(start);
+        d <= end;
+        d.setDate(d.getDate() + 1)
+      ) {
+        const dateStr = d.toISOString().split("T")[0];
+        const isSunday = d.getDay() === 0;
+        if (isSunday) continue;
+
+        const existing = await tx
+          .select()
+          .from(attendance)
+          .where(
+            and(
+              eq(attendance.employeeId, employee.id),
+              eq(attendance.date, dateStr)
+            )
+          )
+          .limit(1);
+
+        if (existing.length === 0) {
+          await tx.insert(attendance).values({
+            employeeId: employee.id,
+            date: dateStr,
+            status: "ON_LEAVE",
+          });
+        } else {
+          await tx.update(attendance)
+            .set({ status: "ON_LEAVE" })
+            .where(eq(attendance.id, existing[0].id));
         }
       }
 
-      // 🔹 Finally update leave request status
       await tx.update(leaveRequests)
         .set({
-          status: status as any,
+          status: "APPROVED",
           reviewedBy,
           reviewedAt: new Date(),
         })
         .where(eq(leaveRequests.id, leaveId));
+
     });
   }
 
@@ -830,9 +1164,21 @@ export class DatabaseStorage implements IStorage {
 
     const offset = (page - 1) * limit;
 
+    // 🔹 Build status condition correctly
+    let statusCondition;
+
+    if (status === "PENDING") {
+      statusCondition = inArray(leaveRequests.status, [
+        "PENDING",
+        "REVOKE_PENDING",
+      ]);
+    } else {
+      statusCondition = eq(leaveRequests.status, status);
+    }
+
     const baseCondition = and(
       eq(employees.managerId, managerId),
-      eq(leaveRequests.status, status)
+      statusCondition
     );
 
     const records = await db
@@ -868,9 +1214,133 @@ export class DatabaseStorage implements IStorage {
     return { records, total };
   }
 
+  async getApprovedLeaveForDate(
+    employeeId: number,
+    date: string
+  ): Promise<LeaveRequest | undefined> {
 
+    const [leave] = await db
+      .select()
+      .from(leaveRequests)
+      .where(
+        and(
+          eq(leaveRequests.employeeId, employeeId),
+          eq(leaveRequests.status, "APPROVED"),
+          lte(leaveRequests.startDate, date),
+          gte(leaveRequests.endDate, date)
+        )
+      )
+      .limit(1);
 
+    return leave || undefined;
+  }
 
+  async getLeaveForDate(
+    employeeId: number,
+    date: string
+  ): Promise<LeaveRequest | undefined> {
+
+    const [leave] = await db
+      .select()
+      .from(leaveRequests)
+      .where(
+        and(
+          eq(leaveRequests.employeeId, employeeId),
+          lte(leaveRequests.startDate, date),
+          gte(leaveRequests.endDate, date)
+        )
+      )
+      .limit(1);
+
+    return leave || undefined;
+  }
+
+  async cancelLeaveRequest(
+    leaveId: number,
+    employeeId: number,
+    requestedBy: number
+  ): Promise<void> {
+
+    await db.transaction(async (tx) => {
+
+      const [leave] = await tx
+        .select()
+        .from(leaveRequests)
+        .where(eq(leaveRequests.id, leaveId))
+        .for("update");
+
+      if (!leave) {
+        throw new Error("Leave request not found");
+      }
+
+      if (leave.employeeId !== employeeId) {
+        throw new Error("Unauthorized cancel attempt");
+      }
+
+      if (leave.status !== "PENDING") {
+        throw new Error("Only pending leave can be cancelled");
+      }
+
+      await tx.update(leaveRequests)
+        .set({
+          status: "CANCELLED",
+        })
+        .where(eq(leaveRequests.id, leaveId));
+    });
+  }
+
+  async requestLeaveRevoke(
+    leaveId: number,
+    employeeId: number,
+    requestedBy: number
+  ): Promise<void> {
+
+    await db.transaction(async (tx) => {
+
+      const [leave] = await tx
+        .select()
+        .from(leaveRequests)
+        .where(eq(leaveRequests.id, leaveId))
+        .for("update");
+
+      if (!leave) {
+        throw new Error("Leave request not found");
+      }
+
+      if (leave.employeeId !== employeeId) {
+        throw new Error("Unauthorized revoke attempt");
+      }
+
+      if (leave.status !== "APPROVED") {
+        throw new Error("Only approved leave can be revoked");
+      }
+
+      // 🔒 BLOCK revoke for previous payroll month
+      const leaveDate = new Date(leave.startDate);
+      const today = new Date();
+
+      const leaveMonth = leaveDate.getMonth();
+      const leaveYear = leaveDate.getFullYear();
+
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
+
+      if (
+        leaveYear < currentYear ||
+        (leaveYear === currentYear && leaveMonth < currentMonth)
+      ) {
+        throw new Error(
+          "Cannot revoke leave from previous payroll month"
+        );
+      }
+
+      await tx.update(leaveRequests)
+        .set({
+          status: "REVOKE_PENDING",
+        })
+        .where(eq(leaveRequests.id, leaveId));
+    });
+  }
 
 
 
@@ -998,19 +1468,21 @@ export class DatabaseStorage implements IStorage {
       }
 
       // 3️⃣ Incomplete → mark UNPAID
-      if (!record.clockIn || !record.clockOut) {
+      if (record.status !== "ON_LEAVE") {
+
+        const recalculatedStatus = this.calculateAttendanceStatus({
+          date: yesterdayStr,
+          clockIn: record.clockIn,
+          clockOut: record.clockOut,
+        });
+
         await db
           .update(attendance)
-          .set({ status: "UNPAID" })
+          .set({ status: recalculatedStatus })
           .where(eq(attendance.id, record.id));
       }
     }
   }
-
-
-
-
-
 
 
 

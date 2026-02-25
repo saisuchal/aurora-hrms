@@ -31,6 +31,9 @@ export const leaveStatusEnum = pgEnum("leave_status", [
   "PENDING",
   "APPROVED",
   "REJECTED",
+  "REVOKE_PENDING",
+  "REVOKED",
+  "CANCELLED",
 ]);
 
 export const correctionStatusEnum = pgEnum("correction_status", [

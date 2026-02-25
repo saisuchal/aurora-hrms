@@ -8,7 +8,7 @@ import {
 } from "@shared/schema";
 import { sendCredentialsEmail, sendPasswordResetNotification } from "./email";
 import { db } from "./db";
-import { users, employees } from "@shared/schema";
+import { users, employees, LeaveRequest } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -71,79 +71,160 @@ export async function registerRoutes(
 
   // Clock in
   app.post("/api/attendance/clock-in", requireAuth, async (req, res) => {
-    try {
-      const parsed = clockInSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid location data" });
-
-      const employee = await storage.getEmployeeByUserId(req.user!.id);
-      if (!employee) return res.status(400).json({ message: "Employee record not found" });
-
-      const existing = await storage.getTodayAttendance(employee.id);
-      if (existing?.clockIn) return res.status(400).json({ message: "Already clocked in today" });
-
-      const officeConfig = await storage.getOfficeSettings();
-      if (officeConfig) {
-        const distance = haversineDistance(
-          parsed.data.latitude, parsed.data.longitude,
-          officeConfig.latitude, officeConfig.longitude
-        );
-        if (distance > officeConfig.allowedRadiusMeters) {
-          return res.status(400).json({
-            message: `You are ${Math.round(distance)}m from the office. Must be within ${officeConfig.allowedRadiusMeters}m.`
-          });
-        }
-      }
-
-      const today = new Date().toISOString().split("T")[0];
-      const record = await storage.createAttendance({
-        employeeId: employee.id,
-        date: today,
-        clockIn: new Date(),
-        clockInLat: parsed.data.latitude,
-        clockInLng: parsed.data.longitude,
-        ipAddress: getClientIp(req),
-        status: "PRESENT",
-      });
-
-      await storage.createAuditLog({
-        userId: req.user!.id,
-        action: "CLOCK_IN",
-        entity: "attendance",
-        entityId: record.id,
-        details: `Clock in at ${parsed.data.latitude}, ${parsed.data.longitude}`,
-        ipAddress: getClientIp(req),
-      });
-
-      res.json(record);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+  try {
+    // 1️⃣ Validate request
+    const parsed = clockInSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid location data" });
     }
-  });
+
+    // 2️⃣ Get employee
+    const employee = await storage.getEmployeeByUserId(req.user!.id);
+    if (!employee) {
+      return res.status(404).json({ message: "Employee record not found" });
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+
+    // 3️⃣ Check leave for today
+    const leave = await storage.getLeaveForDate(employee.id, today);
+
+    if (leave?.status === "APPROVED") {
+      return res.status(409).json({
+        code: "LEAVE_APPROVED",
+        leaveId: leave.id,
+      });
+    }
+
+    if (leave?.status === "REVOKE_PENDING") {
+      return res.status(409).json({
+        code: "REVOKE_PENDING",
+        leaveId: leave.id,
+        message:
+          "Revoke request is under review. Please wait for manager decision.",
+      });
+    }
+
+    // 4️⃣ Check existing attendance
+    const existing = await storage.getTodayAttendance(employee.id);
+
+    if (existing?.clockIn) {
+      return res.status(400).json({ message: "Already clocked in today" });
+    }
+
+    // 5️⃣ Geo restriction
+    const officeConfig = await storage.getOfficeSettings();
+    if (officeConfig) {
+      const distance = haversineDistance(
+        parsed.data.latitude,
+        parsed.data.longitude,
+        officeConfig.latitude,
+        officeConfig.longitude
+      );
+
+      if (distance > officeConfig.allowedRadiusMeters) {
+        return res.status(400).json({
+          message: `You are ${Math.round(
+            distance
+          )}m from the office. Must be within ${
+            officeConfig.allowedRadiusMeters
+          }m.`,
+        });
+      }
+    }
+
+    // 6️⃣ Create attendance
+    const record = await storage.createAttendance({
+      employeeId: employee.id,
+      date: today,
+      clockIn: new Date(),
+      clockInLat: parsed.data.latitude,
+      clockInLng: parsed.data.longitude,
+      ipAddress: getClientIp(req),
+      status: "PRESENT", // safe here
+    });
+
+    await storage.createAuditLog({
+      userId: req.user!.id,
+      action: "CLOCK_IN",
+      entity: "attendance",
+      entityId: record.id,
+      details: `Clock in at ${parsed.data.latitude}, ${parsed.data.longitude}`,
+      ipAddress: getClientIp(req),
+    });
+
+    res.json(record);
+
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
   // Clock out
   app.post("/api/attendance/clock-out", requireAuth, async (req, res) => {
-    try {
-      const parsed = clockInSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid location data" });
-
-      const employee = await storage.getEmployeeByUserId(req.user!.id);
-      if (!employee) return res.status(400).json({ message: "Employee record not found" });
-
-      const existing = await storage.getTodayAttendance(employee.id);
-      if (!existing?.clockIn) return res.status(400).json({ message: "Not clocked in yet" });
-      if (existing.clockOut) return res.status(400).json({ message: "Already clocked out" });
-
-      const record = await storage.updateAttendance(existing.id, {
-        clockOut: new Date(),
-        clockOutLat: parsed.data.latitude,
-        clockOutLng: parsed.data.longitude,
-      });
-
-      res.json(record);
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+  try {
+    const parsed = clockInSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid location data" });
     }
-  });
+
+    const employee = await storage.getEmployeeByUserId(req.user!.id);
+    if (!employee) {
+      return res.status(404).json({ message: "Employee record not found" });
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+
+    const leave = await storage.getLeaveForDate(employee.id, today);
+
+    const isApprovedLeave = leave?.status === "APPROVED";
+    const isRevokePending = leave?.status === "REVOKE_PENDING";
+
+    const existing = await storage.getTodayAttendance(employee.id);
+
+    if (!existing?.clockIn) {
+      return res.status(400).json({ message: "Not clocked in yet" });
+    }
+
+    if (existing.clockOut) {
+      return res.status(400).json({ message: "Already clocked out" });
+    }
+
+    const newClockOut = new Date();
+
+    const recalculatedStatus = storage.calculateAttendanceStatus({
+      date: today,
+      clockIn: existing.clockIn,
+      clockOut: newClockOut,
+    });
+
+    const finalStatus =
+      isApprovedLeave || isRevokePending
+        ? "ON_LEAVE"
+        : recalculatedStatus;
+
+    const record = await storage.updateAttendance(existing.id, {
+      clockOut: newClockOut,
+      clockOutLat: parsed.data.latitude,
+      clockOutLng: parsed.data.longitude,
+      status: finalStatus,
+    });
+
+    await storage.createAuditLog({
+      userId: req.user!.id,
+      action: "CLOCK_OUT",
+      entity: "attendance",
+      entityId: record.id,
+      details: `Clock out at ${parsed.data.latitude}, ${parsed.data.longitude}`,
+      ipAddress: getClientIp(req),
+    });
+
+    res.json(record);
+
+  } catch (err: any) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
   // Attendance history
 
@@ -184,26 +265,32 @@ export async function registerRoutes(
   app.post("/api/attendance/correction", requireAuth, async (req, res) => {
     try {
       const parsed = correctionRequestSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0].message });
+      if (!parsed.success) {
+        return res.status(400).json({
+          message: parsed.error.errors[0].message,
+        });
+      }
 
       const employee = await storage.getEmployeeByUserId(req.user!.id);
-      if (!employee) return res.status(400).json({ message: "Employee record not found" });
+      if (!employee) {
+        return res.status(400).json({
+          message: "Employee record not found",
+        });
+      }
 
-      const record = await storage.createAttendanceCorrection({
-        employeeId: employee.id,
-        date: parsed.data.date,
-        reason: parsed.data.reason,
-        requestedClockIn: parsed.data.requestedClockIn ? new Date(parsed.data.requestedClockIn) : null,
-        requestedClockOut: parsed.data.requestedClockOut ? new Date(parsed.data.requestedClockOut) : null,
-      });
+      await storage.createAttendanceCorrectionWithValidation(
+        employee.id,
+        parsed.data
+      );
 
-      res.json(record);
+      res.json({ success: true });
+
     } catch (err: any) {
-      res.status(500).json({ message: err.message });
+      res.status(400).json({ message: err.message });
     }
   });
 
-
+  // Correction review (approve/reject)
   app.post(
     "/api/attendance/correction/:id/review",
     requireRole("HR", "MANAGER", "SUPER_ADMIN"),
@@ -249,7 +336,7 @@ export async function registerRoutes(
     }
   );
 
-
+  // Monthly attendance summary
   app.get(
     "/api/attendance/summary",
     requireRole("EMPLOYEE", "MANAGER", "HR", "SUPER_ADMIN"),
@@ -279,7 +366,7 @@ export async function registerRoutes(
   );
 
 
-
+  // Leave application
   app.post("/api/leave", requireAuth, async (req, res) => {
     try {
       const parsed = leaveApplicationSchema.safeParse(req.body);
@@ -291,6 +378,9 @@ export async function registerRoutes(
       if (!employee) {
         return res.status(400).json({ message: "Employee record not found" });
       }
+
+      const force = req.query.force === "true";
+      const today = new Date().toISOString().split("T")[0];
 
       const { leaveType, startDate, endDate } = parsed.data;
 
@@ -307,7 +397,6 @@ export async function registerRoutes(
 
       // ✅ Allow only current month and next month
       const now = new Date();
-
       const currentMonth = now.getMonth();
       const currentYear = now.getFullYear();
 
@@ -329,8 +418,7 @@ export async function registerRoutes(
 
       if (!isStartValid || !isEndValid) {
         return res.status(400).json({
-          message:
-            "Leave can only be applied for the current or next month",
+          message: "Leave can only be applied for the current or next month",
         });
       }
 
@@ -351,6 +439,14 @@ export async function registerRoutes(
         }
       }
 
+      if (leaveType === "EARNED") {
+        if ((employee.earnedLeaveBalance || 0) < diffDays) {
+          return res.status(400).json({
+            message: "Insufficient earned leave balance",
+          });
+        }
+      }
+
       // ✅ Overlapping check
       const overlapping = await storage.hasOverlappingLeave(
         employee.id,
@@ -364,6 +460,27 @@ export async function registerRoutes(
         });
       }
 
+      /* =====================================================
+         🔴 PRESENT TODAY CONFIRMATION LOGIC
+      ===================================================== */
+
+      if (startDate === today) {
+        const attendanceToday = await storage.getTodayAttendance(employee.id);
+
+        if (attendanceToday &&
+          (attendanceToday.clockIn || attendanceToday.clockOut) &&
+          !force
+        ) {
+          return res.status(409).json({
+            code: "ALREADY_PRESENT",
+            date: today,
+            message:
+              "You have attendance recorded today. Proceeding will convert it to ON_LEAVE.",
+          });
+        }
+      }
+
+      // ✅ Create leave request
       const record = await storage.createLeaveRequest({
         employeeId: employee.id,
         leaveType,
@@ -381,9 +498,7 @@ export async function registerRoutes(
     }
   });
 
-
-
-
+  // Leave history for logged-in user
   app.get("/api/leave", requireAuth, async (req, res) => {
     try {
       const employee = await storage.getEmployeeByUserId(req.user!.id);
@@ -433,6 +548,84 @@ export async function registerRoutes(
     }
   );
 
+  // Leave revoke request by employee
+  app.post(
+  "/api/leave/:id/revoke",
+  requireAuth,
+  async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+
+      if (!id) {
+        return res.status(400).json({ message: "Invalid leave id" });
+      }
+
+      const employee = await storage.getEmployeeByUserId(req.user!.id);
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+
+      await storage.requestLeaveRevoke(
+        id,
+        employee.id,
+        req.user!.id
+      );
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "LEAVE_REVOKE_REQUEST",
+        entity: "leave_request",
+        entityId: id,
+        ipAddress: getClientIp(req),
+      });
+
+      return res.json({ success: true });
+
+    } catch (err: any) {
+      return res.status(409).json({ message: err.message });
+    }
+  }
+);
+
+  // Leave cancel by employee (only for pending leaves)
+  app.post(
+  "/api/leave/:id/cancel",
+  requireAuth,
+  async (req: Request<{ id: string }>, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+
+      if (!id) {
+        return res.status(400).json({ message: "Invalid leave id" });
+      }
+
+      const employee = await storage.getEmployeeByUserId(req.user!.id);
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+
+      await storage.cancelLeaveRequest(
+        id,
+        employee.id,
+        req.user!.id
+      );
+
+      await storage.createAuditLog({
+        userId: req.user!.id,
+        action: "LEAVE_CANCELLED",
+        entity: "leave_request",
+        entityId: id,
+        ipAddress: getClientIp(req),
+      });
+
+      return res.json({ success: true });
+
+    } catch (err: any) {
+      return res.status(409).json({ message: err.message });
+    }
+  }
+);
+
 
   app.get("/api/leave/balance", requireAuth, async (req, res) => {
     try {
@@ -451,10 +644,6 @@ export async function registerRoutes(
       res.status(500).json({ message: err.message });
     }
   });
-
-
-
-
 
   app.get("/api/team/attendance", requireRole("MANAGER", "HR", "SUPER_ADMIN"), async (req, res) => {
     try {
@@ -761,7 +950,7 @@ export async function registerRoutes(
     requireRole("MANAGER", "HR", "SUPER_ADMIN"),
     async (req, res) => {
       try {
-        const status = (req.query.status as string) || "PENDING";
+        const status = (req.query.status as LeaveRequest["status"]) || "PENDING";
         const page = parseInt(req.query.page as string) || 1;
         const limit = 10;
 
@@ -775,14 +964,14 @@ export async function registerRoutes(
         let result;
 
         if (user.role === "MANAGER") {
-          // Manager → only their team
           result = await storage.getLeavesByManager(
             employee.id,
-            status as "PENDING" | "APPROVED" | "REJECTED",
+            status,
             page,
             limit
           );
-        } else {
+        }
+        else {
           // HR / SUPER_ADMIN → all leaves
           result = await storage.getAllLeaves(
             status,

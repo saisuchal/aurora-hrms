@@ -1,17 +1,38 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// async function throwIfResNotOk(res: Response) {
+//   if (!res.ok) {
+//     let message = res.statusText;
+
+//     try {
+//       const data = await res.json();
+//       message = data.message || JSON.stringify(data);
+//     } catch {
+//       message = await res.text();
+//     }
+
+//     throw new Error(message);
+//   }
+// }
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     let message = res.statusText;
+    let data: any = null;
 
     try {
-      const data = await res.json();
-      message = data.message || JSON.stringify(data);
+      data = await res.json();
+      message = data.message || message;
     } catch {
       message = await res.text();
     }
 
-    throw new Error(message);
+    const error: any = new Error(message);
+    error.status = res.status;
+    error.code = data?.code;
+    error.meta = data; // ← Preserve entire payload
+
+    throw error;
   }
 }
 

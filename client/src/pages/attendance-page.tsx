@@ -69,6 +69,8 @@ export default function AttendancePage() {
   const { user } = useAuth();
 
   const today = new Date();
+  const todayStr = today.toISOString().split("T")[0];
+
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [year, setYear] = useState(today.getFullYear());
   const [page, setPage] = useState(1);
@@ -78,9 +80,7 @@ export default function AttendancePage() {
   const [selectedRecord, setSelectedRecord] = useState<any | null>(null);
   const [dateBounds, setDateBounds] = useState<{ min: string; max: string } | null>(null);
 
-  /* =========================
-     SUMMARY
-  ========================= */
+  /* ================= SUMMARY ================= */
 
   const { data: summaryData, isLoading: summaryLoading } =
     useQuery({
@@ -95,9 +95,7 @@ export default function AttendancePage() {
       enabled: !!user,
     });
 
-  /* =========================
-     HISTORY
-  ========================= */
+  /* ================= HISTORY ================= */
 
   const { data: historyData, isLoading: historyLoading } =
     useQuery({
@@ -113,9 +111,7 @@ export default function AttendancePage() {
       placeholderData: (prev) => prev,
     });
 
-  /* =========================
-     CORRECTION FORM
-  ========================= */
+  /* ================= CORRECTION ================= */
 
   const correctionForm = useForm({
     resolver: zodResolver(correctionSchema),
@@ -185,43 +181,8 @@ export default function AttendancePage() {
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
   const years = [thisYear, thisYear - 1, thisYear - 2];
 
-  /* =========================
-     UI
-  ========================= */
-
   return (
     <div className="p-6 space-y-6">
-
-      {/* FILTER BAR */}
-      <div className="flex gap-4">
-        <select
-          value={month}
-          onChange={(e) => {
-            setMonth(Number(e.target.value));
-            setPage(1);
-          }}
-          className="border rounded px-3 py-2"
-        >
-          {months.map((m) => (
-            <option key={m} value={m}>
-              {format(new Date(2000, m - 1), "MMMM")}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={year}
-          onChange={(e) => {
-            setYear(Number(e.target.value));
-            setPage(1);
-          }}
-          className="border rounded px-3 py-2"
-        >
-          {years.map((y) => (
-            <option key={y}>{y}</option>
-          ))}
-        </select>
-      </div>
 
       {/* SUMMARY */}
       <Card>
@@ -241,21 +202,18 @@ export default function AttendancePage() {
                   {summaryData?.workingDays ?? 0}
                 </p>
               </div>
-
               <div className="p-4 bg-green-50 rounded-xl">
                 <p>Present</p>
                 <p className="text-2xl font-bold text-green-600">
                   {summaryData?.presentDays ?? 0}
                 </p>
               </div>
-
               <div className="p-4 bg-yellow-50 rounded-xl">
                 <p>On Leave</p>
                 <p className="text-2xl font-bold text-yellow-600">
                   {summaryData?.leaveDays ?? 0}
                 </p>
               </div>
-
               <div className="p-4 bg-red-50 rounded-xl">
                 <p>Absent</p>
                 <p className="text-2xl font-bold text-red-600">
@@ -276,19 +234,31 @@ export default function AttendancePage() {
           {historyLoading ? (
             <Skeleton className="h-48" />
           ) : historyData?.records?.length ? (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Clock In</TableHead>
-                    <TableHead>Clock Out</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {historyData.records.map((record: any) => (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Clock In</TableHead>
+                  <TableHead>Clock Out</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Correction Status</TableHead>
+                  <TableHead>Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {historyData.records.map((record: any) => {
+
+                  const isToday = record.date === todayStr;
+                  const isPast = record.date < todayStr;
+
+                  const isFullyClocked =
+                    !!record.clockIn && !!record.clockOut;
+
+                  const canCorrect =
+                    (record.status !== "ON_LEAVE" && ((isFullyClocked && isToday) || isPast));
+                    //((isFullyClocked && isToday) || isPast);
+
+                  return (
                     <TableRow key={record.id}>
                       <TableCell>
                         {format(new Date(record.date), "MMM d, yyyy")}
@@ -305,44 +275,36 @@ export default function AttendancePage() {
                       </TableCell>
                       <TableCell>
                         <Badge>
-                          {record.correctionStatus ?? record.status}
+                          {record.status}
                         </Badge>
                       </TableCell>
+
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openCorrectionForRecord(record)}
-                        >
-                          <FileEdit className="h-4 w-4 mr-1" />
-                          Correct
-                        </Button>
+                        {record.correctionStatus ? (
+                          <Badge variant="secondary">
+                            {record.correctionStatus}
+                          </Badge>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {canCorrect && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openCorrectionForRecord(record)}
+                          >
+                            <FileEdit className="h-4 w-4 mr-1" />
+                            Correct
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              <div className="flex justify-between mt-4">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  disabled={page <= 1}
-                  onClick={() => setPage(page - 1)}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="icon"
-                  disabled={page >= (historyData.totalPages || 1)}
-                  onClick={() => setPage(page + 1)}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </>
+                  );
+                })}
+              </TableBody>
+            </Table>
           ) : (
             <div className="flex flex-col items-center py-8 text-muted-foreground">
               <AlertCircle className="h-8 w-8 mb-2" />
@@ -435,4 +397,3 @@ export default function AttendancePage() {
     </div>
   );
 }
-

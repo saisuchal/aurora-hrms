@@ -61,10 +61,15 @@ const statusColor: Record<
   REJECTED: "destructive",
 };
 
+
+
 export default function LeavePage() {
   const { toast } = useToast();
   const [page, setPage] = useState(1);
   const [applyOpen, setApplyOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingLeaveData, setPendingLeaveData] =
+    useState<z.infer<typeof leaveApplicationSchema> | null>(null);
 
   /* ---------------- LEAVE REQUESTS ---------------- */
 
@@ -93,28 +98,44 @@ export default function LeavePage() {
   /* ---------------- APPLY MUTATION ---------------- */
 
   const applyMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof leaveApplicationSchema>) => {
-      const res = await apiRequest("POST", "/api/leave", data);
+    mutationFn: async ({
+      data,
+      force = false,
+    }: {
+      data: z.infer<typeof leaveApplicationSchema>;
+      force?: boolean;
+    }) => {
+      const res = await apiRequest(
+        "POST",
+        `/api/leave${force ? "?force=true" : ""}`,
+        data
+      );
       return await res.json();
     },
+
     onSuccess: () => {
       toast({ title: "Leave application submitted" });
       setApplyOpen(false);
       form.reset();
 
-      // Refresh leave list
       queryClient.invalidateQueries({
         predicate: (q) =>
           typeof q.queryKey[0] === "string" &&
           q.queryKey[0].startsWith("/api/leave"),
       });
 
-      // Refresh balance
       queryClient.invalidateQueries({
         queryKey: ["/api/leave/balance"],
       });
     },
-    onError: (error: Error) => {
+
+    onError: (error: any) => {
+      if (error.status === 409 && error.code === "ALREADY_PRESENT") {
+        setPendingLeaveData(form.getValues()); // ← FIX
+        setConfirmOpen(true);
+        return;
+      }
+
       toast({
         title: "Failed to apply for leave",
         description: error.message,
@@ -122,6 +143,42 @@ export default function LeavePage() {
       });
     },
   });
+
+  const cancelMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("POST", `/api/leave/${id}/cancel`);
+    },
+    onSuccess: () => {
+      toast({ title: "Leave cancelled" });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          typeof q.queryKey[0] === "string" &&
+          q.queryKey[0].startsWith("/api/leave"),
+      });
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("POST", `/api/leave/${id}/revoke`);
+    },
+    onSuccess: () => {
+      toast({ title: "Revoke request submitted" });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          typeof q.queryKey[0] === "string" &&
+          q.queryKey[0].startsWith("/api/leave"),
+      });
+    },
+  });
+
+  const cancelLeave = (id: number) => {
+    cancelMutation.mutate(id);
+  };
+
+  const revokeLeave = (id: number) => {
+    revokeMutation.mutate(id);
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -150,7 +207,7 @@ export default function LeavePage() {
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit((d) =>
-                  applyMutation.mutate(d)
+                  applyMutation.mutate({ data: d })
                 )}
                 className="space-y-4"
               >
@@ -162,8 +219,8 @@ export default function LeavePage() {
                     <FormItem>
                       <FormLabel>Leave Type</FormLabel>
                       <Select
+                        value={field.value}
                         onValueChange={field.onChange}
-                        defaultValue={field.value}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -262,6 +319,45 @@ export default function LeavePage() {
             </Form>
           </DialogContent>
         </Dialog>
+        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Already Marked Present</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                You are already marked as PRESENT today.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                If you proceed, today's attendance will be converted to ON_LEAVE after manager's approval.
+              </p>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmOpen(false)}
+                >
+                  Cancel
+                </Button>
+
+                <Button
+                  onClick={() => {
+                    if (!pendingLeaveData) return;
+
+                    setConfirmOpen(false);
+                    applyMutation.mutate({
+                      data: pendingLeaveData,
+                      force: true,
+                    });
+                  }}
+                >
+                  Proceed
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* LEAVE BALANCE CARD */}
@@ -334,6 +430,7 @@ export default function LeavePage() {
                     <TableHead>End Date</TableHead>
                     <TableHead>Reason</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -367,6 +464,27 @@ export default function LeavePage() {
                         >
                           {leave.status}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {leave.status === "PENDING" && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => cancelLeave(leave.id)}
+                          >
+                            Cancel
+                          </Button>
+                        )}
+
+                        {leave.status === "APPROVED" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => revokeLeave(leave.id)}
+                          >
+                            Revoke
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
